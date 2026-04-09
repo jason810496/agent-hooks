@@ -1,9 +1,6 @@
 #!/usr/bin/env -S uv run
-# /// script
-# requires-python = ">=3.10"
-# dependencies = []
-# ///
 """Handle Claude Code hook callbacks via macOS notifications."""
+
 from __future__ import annotations
 
 import json
@@ -27,6 +24,8 @@ LOG_BACKUP_COUNT = 5
 
 @dataclass(frozen=True)
 class NotificationSpec:
+    """Represent a macOS notification payload derived from a Claude hook event."""
+
     title: str
     message: str
     subtitle: str = ""
@@ -35,7 +34,7 @@ class NotificationSpec:
 
 @dataclass(frozen=True)
 class DialogSpec:
-    """Interactive macOS dialog with buttons for user decisions."""
+    """Represent an interactive macOS dialog with buttons for user decisions."""
 
     title: str
     message: str
@@ -100,9 +99,7 @@ def build_notification(payload: dict[str, Any]) -> NotificationSpec | None:
     if event_name == "Notification":
         notification_type = str(payload.get("notification_type", "") or "")
         title = compact_text(payload.get("title") or humanize(notification_type) or "Claude Code")
-        message = compact_text(
-            payload.get("message") or "Claude Code sent a notification."
-        )
+        message = compact_text(payload.get("message") or "Claude Code sent a notification.")
         return NotificationSpec(
             title=title,
             message=message,
@@ -173,7 +170,7 @@ def build_permission_dialog(payload: dict[str, Any]) -> DialogSpec:
     # Show what "Always Allow" will remember for this session
     suggestions = payload.get("permission_suggestions") or []
     if suggestions:
-        rules = (suggestions[0].get("rules") or [{}])
+        rules = suggestions[0].get("rules") or [{}]
         rule = rules[0] if rules else {}
         tool = rule.get("toolName", "")
         content = rule.get("ruleContent", "")
@@ -296,9 +293,7 @@ def build_permission_response(button: str, payload: dict[str, Any]) -> dict[str,
         suggestions = payload.get("permission_suggestions") or []
         if suggestions:
             # Use Claude Code's suggestions but scope to current session
-            decision["updatedPermissions"] = [
-                dict(s, destination="session") for s in suggestions
-            ]
+            decision["updatedPermissions"] = [dict(s, destination="session") for s in suggestions]
 
     return {
         "suppressOutput": True,
@@ -350,8 +345,7 @@ def append_raw_input_log(*, timestamp: str, payload: dict[str, Any], raw_input: 
         cwd = payload.get("cwd") or ""
 
         header = (
-            f"--- timestamp={timestamp} hook_event_name={hook_event_name} "
-            f"session_id={session_id}"
+            f"--- timestamp={timestamp} hook_event_name={hook_event_name} session_id={session_id}"
         )
         if cwd:
             header += f" cwd={cwd}"
@@ -373,6 +367,7 @@ def emit_hook_response(response: dict[str, Any] | None = None) -> None:
 
 
 def main() -> int:
+    """Process Claude hook input and emit the structured response JSON."""
     raw_input, payload, parse_error = read_hook_input()
     event_name = str(payload.get("hook_event_name", "") or "")
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -389,7 +384,7 @@ def main() -> int:
             button, osascript_result = run_permission_dialog(dialog)
             if button:
                 hook_response = build_permission_response(button, payload)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             execution_error = f"{type(exc).__name__}: {exc}"
     else:
         notification = build_notification(payload) if payload else None
@@ -399,7 +394,7 @@ def main() -> int:
                 osascript_result = run_osascript(notification)
                 if osascript_result.get("returncode") not in (None, 0):
                     execution_error = osascript_result.get("stderr") or "osascript exited non-zero"
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 execution_error = f"{type(exc).__name__}: {exc}"
 
     append_raw_input_log(timestamp=timestamp, payload=payload, raw_input=raw_input)
