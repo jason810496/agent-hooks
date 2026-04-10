@@ -3,7 +3,7 @@
 # requires-python = ">=3.10"
 # dependencies = []
 # ///
-"""Reject ``print()`` calls that could corrupt Claude hook stdout."""
+"""Reject ``print()`` calls that could corrupt Agent hook stdout."""
 
 from __future__ import annotations
 
