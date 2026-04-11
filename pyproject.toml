@@ -1,10 +1,19 @@
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
 [project]
-name = "claude-hooks"
+name = "agent-hooks"
 version = "0.1.0"
-description = "Claude Code hook callbacks via macOS notifications."
+description = "Agent hook callbacks , support Claude Code, Codex and more"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+    "sqlalchemy==2.0.39",
+]
+
+[project.scripts]
+agent-hooks = "agent_hooks.cli:main"
 
 [dependency-groups]
 dev = [
@@ -12,7 +21,10 @@ dev = [
 ]
 
 [tool.uv]
-package = false
+package = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agent_hooks"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
