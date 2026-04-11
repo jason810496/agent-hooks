@@ -8,12 +8,9 @@ version = "0.1.0"
 description = "Agent hook callbacks , support Claude Code, Codex and more"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = [
-    "sqlalchemy==2.0.39",
-]
 
 [project.scripts]
-agent-hooks = "agent_hooks.cli:main"
+agent-hooks = "agent_hooks.__main__:main"
 
 [dependency-groups]
 dev = [

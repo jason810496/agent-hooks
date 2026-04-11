@@ -89,14 +89,9 @@ def run_callback(
     """
     config = runtime_config or load_runtime_config()
     input_data = read_hook_input(stdin)
-    display_transport = transport or AppleScriptTransport(skip_osascript=config.skip_osascript)
-    result = process_hook(input_data, display_transport)
-    timestamp = datetime.now(timezone.utc).isoformat()
-    response_text = render_hook_response(result.response)
-
     append_input_audit_log(
         InputAuditLogRecord(
-            timestamp=timestamp,
+            timestamp=datetime.now(timezone.utc).isoformat(),
             hook_event_name=input_data.payload.raw_event_name,
             session_id=input_data.payload.session_id,
             cwd=input_data.payload.cwd,
@@ -104,6 +99,11 @@ def run_callback(
         ),
         config.audit_logging.input_file,
     )
+    display_transport = transport or AppleScriptTransport(skip_osascript=config.skip_osascript)
+    result = process_hook(input_data, display_transport)
+    response_text = render_hook_response(result.response)
+
+    timestamp = datetime.now(timezone.utc).isoformat()
     append_response_audit_log(
         ResponseAuditLogRecord(
             timestamp=timestamp,
