@@ -1,0 +1,79 @@
+# Agent Hooks
+
+`agent-hooks` has two high-level goals:
+
+1. Provide a FastAPI-like framework for building hook callbacks for AI coding tools such as Claude Code, Codex, and Gemini CLI.
+2. Provide an out-of-the-box CLI app so a user can install the package with `uv tool install agent-hooks` and set `agent-hooks callback` as the hook callback command. The built-in app shows AppleScript dialogs on macOS for permission prompts.
+
+## Package layout
+
+Framework code lives at the first package level under `agent_hooks/`.
+
+- `agent_hooks/router.py`: FastAPI-like decorator router such as `@app.permission()`.
+- `agent_hooks/runner.py`: Generic callback runtime for loading and executing a router or handler.
+- `agent_hooks/models.py`: Core response and payload models.
+- `agent_hooks/processor.py`: Default processing helpers such as `build_permission_response()`.
+
+The built-in CLI app lives under `agent_hooks/cli_app/`.
+
+- `agent_hooks/cli_app/app.py`: Built-in AppleScript-backed app instance with explicit decorator routes for notification, permission, stop, and stop-failure events.
+- `agent_hooks/cli_app/cli.py`: CLI entrypoint for `agent-hooks callback`.
+- `agent_hooks/__main__.py`: Thin module entrypoint that exposes the built-in CLI app.
+
+## Install
+
+```bash
+uv tool install agent-hooks
+```
+
+After installation, configure your AI coding tool to invoke:
+
+```bash
+agent-hooks callback
+```
+
+The built-in CLI app is intended to work out of the box on macOS by showing AppleScript dialogs for permission requests.
+
+## Framework usage
+
+Create your own hook app with a FastAPI-like interface:
+
+```python
+from __future__ import annotations
+
+from agent_hooks import AgentHook, PermissionRequestEvent, build_permission_response
+from agent_hooks.enums import DialogButton
+
+app = AgentHook()
+
+
+@app.permission()
+def permission_handler(hook_event: PermissionRequestEvent):
+    return build_permission_response(DialogButton.ALLOW_ONCE, hook_event)
+```
+
+You can execute a callback against a router instance directly:
+
+```python
+from agent_hooks.runner import run_callback
+
+run_callback(app)
+```
+
+Or load it by module path:
+
+```python
+from agent_hooks.runner import run_callback
+
+run_callback("my_hooks:app")
+```
+
+Any custom response model is acceptable as long as it fits the hook response protocol: it must expose `suppress_output`, `hook_specific_output`, and `as_payload()`.
+
+## Built-in CLI app
+
+The built-in app is exposed from `agent_hooks.cli_app.app` as both:
+
+- `app`
+
+The built-in CLI uses `cli_app.app:app` as its default callback target, and that app is implemented with explicit route decorators rather than router fallback.

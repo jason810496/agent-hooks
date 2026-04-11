@@ -5,7 +5,10 @@ import logging
 from io import StringIO
 from pathlib import Path
 
-from agent_hooks.cli import run_callback
+import pytest
+
+from agent_hooks import AgentHook, CallbackRequest, NotificationEvent, PermissionRequestEvent
+from agent_hooks.cli_app.app import app
 from agent_hooks.config import (
     ApplicationLoggingConfig,
     AuditLoggingConfig,
@@ -14,10 +17,22 @@ from agent_hooks.config import (
     load_runtime_config,
 )
 from agent_hooks.enums import AppleScriptInvocation, DialogButton, TransportStatus
-from agent_hooks.models import AppleScriptResult, DialogResult
+from agent_hooks.models import (
+    AppleScriptDialogResponse,
+    AppleScriptResult,
+    DialogResult,
+    HookProcessingResult,
+    HookResponse,
+)
 from agent_hooks.parsing import build_hook_payload, read_hook_input
 from agent_hooks.presentation import build_permission_dialog
-from agent_hooks.processor import build_permission_response, process_hook
+from agent_hooks.processor import (
+    build_permission_response,
+    process_hook,
+    process_permission_request,
+)
+from agent_hooks.runner import run_callback
+from agent_hooks.transport import DisplayTransport
 
 
 class FakeTransport:
@@ -39,12 +54,46 @@ class FakeTransport:
                 stdout="button returned:Allow Once",
             ),
         )
+        self.notification_calls = 0
+        self.dialog_calls = 0
 
     def send_notification(self, notification: object) -> AppleScriptResult:
+        self.notification_calls += 1
         return self._notification_result
 
     def show_dialog(self, dialog: object) -> DialogResult:
+        self.dialog_calls += 1
         return self._dialog_result
+
+
+def build_runtime_config(tmp_path: Path) -> RuntimeConfig:
+    return RuntimeConfig(
+        project_root=tmp_path,
+        log_directory=tmp_path / "logs",
+        skip_osascript=True,
+        application_logging=ApplicationLoggingConfig(
+            file=FileLoggingConfig(
+                path=tmp_path / "logs" / "hooks.log",
+                max_bytes=1024 * 1024,
+                backup_count=1,
+            ),
+            level=logging.DEBUG,
+            level_name="DEBUG",
+            format_string="%(levelname)s %(message)s",
+        ),
+        audit_logging=AuditLoggingConfig(
+            input_file=FileLoggingConfig(
+                path=tmp_path / "logs" / "hooks.raw.log",
+                max_bytes=1024 * 1024,
+                backup_count=1,
+            ),
+            response_file=FileLoggingConfig(
+                path=tmp_path / "logs" / "hooks.response.log",
+                max_bytes=1024 * 1024,
+                backup_count=1,
+            ),
+        ),
+    )
 
 
 class TestReadHookInput:
@@ -78,6 +127,13 @@ class TestPresentation:
 
 
 class TestPermissionResponse:
+    def test_build_permission_response_returns_response_model(self) -> None:
+        payload = build_hook_payload({"hook_event_name": "PermissionRequest"})
+
+        response = build_permission_response(DialogButton.ALLOW_ONCE, payload)
+
+        assert isinstance(response, AppleScriptDialogResponse)
+
     def test_always_allow_scopes_updates_to_session(self) -> None:
         payload = build_hook_payload(
             {
@@ -133,6 +189,213 @@ class TestProcessHook:
         assert result.response.as_payload() == {"suppressOutput": True}
 
 
+class TestAgentHook:
+    def test_permission_decorator_accepts_custom_response_model(self) -> None:
+        hook = AgentHook()
+
+        class CustomResponse:
+            suppress_output = False
+            hook_specific_output = None
+
+            def as_payload(self) -> dict[str, bool]:
+                return {"suppressOutput": self.suppress_output}
+
+        @hook.permission()
+        def permission_callback():
+            return CustomResponse()
+
+        input_data = read_hook_input(StringIO('{"hook_event_name":"PermissionRequest"}'))
+
+        result = hook.dispatch(input_data, FakeTransport())
+
+        assert result.response.as_payload() == {"suppressOutput": False}
+
+    def test_permission_decorator_supports_transport_injection(self) -> None:
+        hook = AgentHook(fallback_to_default_processor=False)
+
+        @hook.permission()
+        def permission_callback(
+            hook_event: PermissionRequestEvent,
+            transport: DisplayTransport,
+        ) -> HookProcessingResult:
+            return process_permission_request(hook_event, transport)
+
+        input_data = read_hook_input(StringIO('{"hook_event_name":"PermissionRequest"}'))
+        transport = FakeTransport()
+
+        result = hook.dispatch(input_data, transport)
+
+        assert transport.dialog_calls == 1
+        assert result.response.as_payload() == {
+            "suppressOutput": True,
+            "hookSpecificOutput": {
+                "hookEventName": "PermissionRequest",
+                "decision": {"behavior": "allow"},
+            },
+        }
+
+    def test_permission_decorator_injects_annotated_parameters_by_type(self) -> None:
+        hook = AgentHook()
+
+        @hook.permission()
+        def permission_callback(
+            hook_event: PermissionRequestEvent,
+            request: CallbackRequest,
+            label: str = "default-label",
+        ) -> AppleScriptDialogResponse:
+            assert hook_event.tool_name == "Bash"
+            assert request.payload.tool_name == hook_event.tool_name
+            assert label == "default-label"
+            return build_permission_response(DialogButton.ALWAYS_ALLOW, hook_event)
+
+        input_data = read_hook_input(
+            StringIO(
+                """
+                {
+                  "hook_event_name": "PermissionRequest",
+                  "tool_name": "Bash",
+                  "tool_input": {"command": "git status"},
+                  "permission_suggestions": [
+                    {
+                      "id": "suggestion-1",
+                      "rules": [{"toolName": "Bash", "ruleContent": "git *"}]
+                    }
+                  ]
+                }
+                """
+            )
+        )
+        transport = FakeTransport()
+
+        result = hook.dispatch(input_data, transport)
+
+        assert transport.dialog_calls == 0
+        assert result.response.as_payload() == {
+            "suppressOutput": True,
+            "hookSpecificOutput": {
+                "hookEventName": "PermissionRequest",
+                "decision": {
+                    "behavior": "allow",
+                    "updatedPermissions": [
+                        {
+                            "id": "suggestion-1",
+                            "rules": [{"toolName": "Bash", "ruleContent": "git *"}],
+                            "destination": "session",
+                        }
+                    ],
+                },
+            },
+        }
+
+    def test_permission_decorator_supports_partial_signature_injection(self) -> None:
+        hook = AgentHook()
+
+        @hook.permission()
+        def permission_callback(hook_event: PermissionRequestEvent) -> HookResponse:
+            assert hook_event.tool_input.command == "git status"
+            return HookResponse(suppress_output=False)
+
+        input_data = read_hook_input(
+            StringIO(
+                """
+                {
+                  "hook_event_name": "PermissionRequest",
+                  "tool_name": "Bash",
+                  "tool_input": {"command": "git status"}
+                }
+                """
+            )
+        )
+
+        result = hook.dispatch(input_data, FakeTransport())
+
+        assert result.response.as_payload() == {"suppressOutput": False}
+
+    def test_permission_decorator_supports_zero_argument_handler(self) -> None:
+        hook = AgentHook()
+
+        @hook.permission()
+        def permission_callback() -> HookResponse:
+            return HookResponse(suppress_output=False)
+
+        input_data = read_hook_input(StringIO('{"hook_event_name":"PermissionRequest"}'))
+
+        result = hook.dispatch(input_data, FakeTransport())
+
+        assert result.response.as_payload() == {"suppressOutput": False}
+
+    def test_dispatch_falls_back_to_default_processor(self) -> None:
+        hook = AgentHook()
+        input_data = read_hook_input(
+            StringIO(
+                """
+                {
+                  "hook_event_name": "PermissionRequest",
+                  "tool_name": "Bash",
+                  "tool_input": {"command": "git status"}
+                }
+                """
+            )
+        )
+        transport = FakeTransport()
+
+        result = hook.dispatch(input_data, transport)
+
+        assert transport.dialog_calls == 1
+        assert result.response.as_payload() == {
+            "suppressOutput": True,
+            "hookSpecificOutput": {
+                "hookEventName": "PermissionRequest",
+                "decision": {"behavior": "allow"},
+            },
+        }
+
+    def test_registering_required_unannotated_parameter_raises_value_error(self) -> None:
+        hook = AgentHook()
+
+        with pytest.raises(
+            ValueError,
+            match="CallbackRequest, DisplayTransport, or PermissionRequestEvent",
+        ):
+
+            @hook.permission()
+            def permission_callback(request: CallbackRequest, label) -> AppleScriptDialogResponse:
+                return build_permission_response(DialogButton.ALLOW_ONCE, request.payload)
+
+    def test_registering_non_matching_event_annotation_raises_value_error(self) -> None:
+        hook = AgentHook()
+
+        with pytest.raises(
+            ValueError,
+            match="CallbackRequest, DisplayTransport, or PermissionRequestEvent",
+        ):
+
+            @hook.permission()
+            def permission_callback(hook_event: NotificationEvent) -> HookResponse:
+                return HookResponse()
+
+    def test_registering_duplicate_handler_raises_value_error(self) -> None:
+        hook = AgentHook()
+
+        @hook.permission()
+        def permission_callback(
+            request: CallbackRequest,
+            hook_event: PermissionRequestEvent,
+        ) -> AppleScriptDialogResponse:
+            assert request.payload.event_name == hook_event.event_name
+            return build_permission_response(DialogButton.ALLOW_ONCE, hook_event)
+
+        with pytest.raises(ValueError, match="PermissionRequest"):
+
+            @hook.permission()
+            def duplicate_permission_callback(
+                request: CallbackRequest,
+                hook_event: PermissionRequestEvent,
+            ) -> AppleScriptDialogResponse:
+                assert request.payload.event_name == hook_event.event_name
+                return build_permission_response(DialogButton.DENY, hook_event)
+
+
 class TestRuntimeConfig:
     def test_load_runtime_config_reads_environment_overrides(self, tmp_path: Path) -> None:
         env = {
@@ -176,33 +439,7 @@ class TestRunCallback:
             """
         )
         stdout = StringIO()
-        runtime_config = RuntimeConfig(
-            project_root=tmp_path,
-            log_directory=tmp_path / "logs",
-            skip_osascript=True,
-            application_logging=ApplicationLoggingConfig(
-                file=FileLoggingConfig(
-                    path=tmp_path / "logs" / "hooks.log",
-                    max_bytes=1024 * 1024,
-                    backup_count=1,
-                ),
-                level=logging.DEBUG,
-                level_name="DEBUG",
-                format_string="%(levelname)s %(message)s",
-            ),
-            audit_logging=AuditLoggingConfig(
-                input_file=FileLoggingConfig(
-                    path=tmp_path / "logs" / "hooks.raw.log",
-                    max_bytes=1024 * 1024,
-                    backup_count=1,
-                ),
-                response_file=FileLoggingConfig(
-                    path=tmp_path / "logs" / "hooks.response.log",
-                    max_bytes=1024 * 1024,
-                    backup_count=1,
-                ),
-            ),
-        )
+        runtime_config = build_runtime_config(tmp_path)
 
         exit_code = run_callback(
             stdin=stdin,
@@ -212,9 +449,9 @@ class TestRunCallback:
         )
 
         assert exit_code == 0
-        assert (
-            stdout.getvalue()
-            == '{"suppressOutput":true,"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}\n'
+        assert stdout.getvalue() == (
+            '{"suppressOutput":true,"hookSpecificOutput":{"hookEventName":"PermissionRequest",'
+            '"decision":{"behavior":"allow"}}}\n'
         )
         input_audit_record = json.loads(runtime_config.raw_log_path.read_text(encoding="utf-8"))
         assert input_audit_record["hook_event_name"] == "PermissionRequest"
@@ -231,3 +468,103 @@ class TestRunCallback:
         assert '"hook_event_name": "PermissionRequest"' in app_log
         expected_response_bytes = len(stdout.getvalue().encode("utf-8"))
         assert f'"response_bytes": {expected_response_bytes}' in app_log
+
+    def test_run_callback_accepts_string_callback_target(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        stdin = StringIO(
+            """
+            {
+              "hook_event_name": "PermissionRequest",
+              "tool_name": "Bash",
+              "tool_input": {"command": "git status"}
+            }
+            """
+        )
+        stdout = StringIO()
+        runtime_config = build_runtime_config(tmp_path)
+
+        exit_code = run_callback(
+            "cli_app.app:app",
+            stdin=stdin,
+            stdout=stdout,
+            runtime_config=runtime_config,
+            transport=FakeTransport(),
+        )
+
+        assert exit_code == 0
+        assert stdout.getvalue() == (
+            '{"suppressOutput":true,"hookSpecificOutput":{"hookEventName":"PermissionRequest",'
+            '"decision":{"behavior":"allow"}}}\n'
+        )
+
+    def test_run_callback_accepts_callback_instance(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        stdin = StringIO(
+            """
+            {
+              "hook_event_name": "PermissionRequest",
+              "tool_name": "Bash",
+              "tool_input": {"command": "git status"}
+            }
+            """
+        )
+        stdout = StringIO()
+        runtime_config = build_runtime_config(tmp_path)
+
+        exit_code = run_callback(
+            app,
+            stdin=stdin,
+            stdout=stdout,
+            runtime_config=runtime_config,
+            transport=FakeTransport(),
+        )
+
+        assert exit_code == 0
+        assert stdout.getvalue() == (
+            '{"suppressOutput":true,"hookSpecificOutput":{"hookEventName":"PermissionRequest",'
+            '"decision":{"behavior":"allow"}}}\n'
+        )
+
+    def test_agent_hook_run_callback_uses_registered_handler(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        hook = AgentHook()
+
+        @hook.permission()
+        def permission_callback(
+            request: CallbackRequest,
+            hook_event: PermissionRequestEvent,
+        ) -> AppleScriptDialogResponse:
+            assert hook_event.tool_input.command == "git status"
+            assert request.payload.tool_input.command == hook_event.tool_input.command
+            return build_permission_response(DialogButton.DENY, hook_event)
+
+        stdin = StringIO(
+            """
+            {
+              "hook_event_name": "PermissionRequest",
+              "tool_name": "Bash",
+              "tool_input": {"command": "git status"}
+            }
+            """
+        )
+        stdout = StringIO()
+        runtime_config = build_runtime_config(tmp_path)
+
+        exit_code = hook.run_callback(
+            stdin=stdin,
+            stdout=stdout,
+            runtime_config=runtime_config,
+            transport=FakeTransport(),
+        )
+
+        assert exit_code == 0
+        assert stdout.getvalue() == (
+            '{"suppressOutput":true,"hookSpecificOutput":{"hookEventName":"PermissionRequest",'
+            '"decision":{"behavior":"deny"}}}\n'
+        )

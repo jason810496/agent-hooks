@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TypeAlias
+from typing import Protocol, TypeAlias
 
 from agent_hooks.enums import (
     AppleScriptInvocation,
@@ -178,6 +178,17 @@ class HookSpecificOutput:
         }
 
 
+class HookResponseProtocol(Protocol):
+    """Define the protocol implemented by serializable hook responses."""
+
+    suppress_output: bool
+    hook_specific_output: HookSpecificOutput | None
+
+    def as_payload(self) -> JsonObject:
+        """Serialize the response into Claude's hook payload format."""
+        ...
+
+
 @dataclass(frozen=True)
 class HookResponse:
     """Store the top-level response emitted to stdout."""
@@ -197,12 +208,53 @@ class HookResponse:
 
 
 @dataclass(frozen=True)
+class AppleScriptDialogResponse:
+    """Store the permission response for one AppleScript dialog selection."""
+
+    button: DialogButton
+    payload: HookPayload
+    suppress_output: bool = True
+
+    @property
+    def hook_specific_output(self) -> HookSpecificOutput | None:
+        """Build the permission-specific output block."""
+        if self.button == DialogButton.DENY:
+            decision = PermissionDecision(behavior=PermissionBehavior.DENY)
+        else:
+            updates: tuple[PermissionUpdate, ...] = ()
+            if self.button == DialogButton.ALWAYS_ALLOW:
+                updates = tuple(
+                    PermissionUpdate(source=suggestion.raw)
+                    for suggestion in self.payload.permission_suggestions
+                )
+            decision = PermissionDecision(
+                behavior=PermissionBehavior.ALLOW,
+                updated_permissions=updates,
+            )
+
+        return HookSpecificOutput(
+            hook_event_name=HookEventName.PERMISSION_REQUEST,
+            decision=decision,
+        )
+
+    def as_payload(self) -> JsonObject:
+        """Serialize the dialog selection into Claude's hook payload format.
+
+        :return: JSON payload for Claude's hook protocol.
+        """
+        return HookResponse(
+            suppress_output=self.suppress_output,
+            hook_specific_output=self.hook_specific_output,
+        ).as_payload()
+
+
+@dataclass(frozen=True)
 class HookProcessingResult:
     """Store the processing result before logging and emission."""
 
     display: DisplaySpec | None
     transport_result: AppleScriptResult | None
-    response: HookResponse
+    response: HookResponseProtocol
     error: str | None = None
 
 

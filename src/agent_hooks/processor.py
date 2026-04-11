@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-from agent_hooks.enums import DialogButton, HookEventName, PermissionBehavior, TransportStatus
+from agent_hooks.enums import DialogButton, HookEventName, TransportStatus
 from agent_hooks.models import (
+    AppleScriptDialogResponse,
     AppleScriptResult,
     HookInput,
     HookPayload,
     HookProcessingResult,
     HookResponse,
-    HookSpecificOutput,
-    PermissionDecision,
-    PermissionUpdate,
 )
 from agent_hooks.presentation import build_notification, build_permission_dialog
 from agent_hooks.transport import DisplayTransport
@@ -39,27 +37,65 @@ def process_hook(input_data: HookInput, transport: DisplayTransport) -> HookProc
 
     payload = input_data.payload
     if payload.event_name == HookEventName.PERMISSION_REQUEST:
-        dialog = build_permission_dialog(payload)
-        dialog_result = transport.show_dialog(dialog)
-        response = (
-            build_permission_response(dialog_result.button, payload)
-            if dialog_result.button is not None
-            else DEFAULT_HOOK_RESPONSE
-        )
-        return HookProcessingResult(
-            display=dialog,
-            transport_result=dialog_result.transport,
-            response=response,
-            error=transport_error(dialog_result.transport, error),
-        )
+        return process_permission_request(payload, transport, current_error=error)
 
+    return process_notification_event(payload, transport, current_error=error)
+
+
+def process_permission_request(
+    payload: HookPayload,
+    transport: DisplayTransport,
+    *,
+    current_error: str | None = None,
+) -> HookProcessingResult:
+    """Process a permission request through the display transport.
+
+    :param payload: Normalized permission payload.
+    :type payload: HookPayload
+    :param transport: UI transport implementation.
+    :type transport: DisplayTransport
+    :param current_error: Existing processing error, if any.
+    :type current_error: str | None
+    :return: Processing result for logging and emission.
+    """
+    dialog = build_permission_dialog(payload)
+    dialog_result = transport.show_dialog(dialog)
+    response = (
+        build_permission_response(dialog_result.button, payload)
+        if dialog_result.button is not None
+        else DEFAULT_HOOK_RESPONSE
+    )
+    return HookProcessingResult(
+        display=dialog,
+        transport_result=dialog_result.transport,
+        response=response,
+        error=transport_error(dialog_result.transport, current_error),
+    )
+
+
+def process_notification_event(
+    payload: HookPayload,
+    transport: DisplayTransport,
+    *,
+    current_error: str | None = None,
+) -> HookProcessingResult:
+    """Process a notification-like event through the display transport.
+
+    :param payload: Normalized hook payload.
+    :type payload: HookPayload
+    :param transport: UI transport implementation.
+    :type transport: DisplayTransport
+    :param current_error: Existing processing error, if any.
+    :type current_error: str | None
+    :return: Processing result for logging and emission.
+    """
     notification = build_notification(payload)
     if notification is None:
         return HookProcessingResult(
             display=None,
             transport_result=None,
             response=DEFAULT_HOOK_RESPONSE,
-            error=error,
+            error=current_error,
         )
 
     transport_result = transport.send_notification(notification)
@@ -67,40 +103,22 @@ def process_hook(input_data: HookInput, transport: DisplayTransport) -> HookProc
         display=notification,
         transport_result=transport_result,
         response=DEFAULT_HOOK_RESPONSE,
-        error=transport_error(transport_result, error),
+        error=transport_error(transport_result, current_error),
     )
 
 
-def build_permission_response(button: DialogButton, payload: HookPayload) -> HookResponse:
+def build_permission_response(
+    button: DialogButton, payload: HookPayload
+) -> AppleScriptDialogResponse:
     """Build the permission response for a selected dialog button.
 
     :param button: Selected dialog button.
     :type button: DialogButton
     :param payload: Normalized hook payload.
     :type payload: HookPayload
-    :return: Structured hook response.
+    :return: Structured permission response model.
     """
-    if button == DialogButton.DENY:
-        decision = PermissionDecision(behavior=PermissionBehavior.DENY)
-    else:
-        updates = ()
-        if button == DialogButton.ALWAYS_ALLOW:
-            updates = tuple(
-                PermissionUpdate(source=suggestion.raw)
-                for suggestion in payload.permission_suggestions
-            )
-        decision = PermissionDecision(
-            behavior=PermissionBehavior.ALLOW,
-            updated_permissions=updates,
-        )
-
-    return HookResponse(
-        suppress_output=True,
-        hook_specific_output=HookSpecificOutput(
-            hook_event_name=HookEventName.PERMISSION_REQUEST,
-            decision=decision,
-        ),
-    )
+    return AppleScriptDialogResponse(button=button, payload=payload)
 
 
 def transport_error(transport_result: object, current_error: str | None) -> str | None:
