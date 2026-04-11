@@ -4,6 +4,7 @@
 
 1. Provide a FastAPI-like framework for building hook callbacks for AI coding tools such as Claude Code, Codex, and Gemini CLI.
 2. Provide an out-of-the-box CLI app so a user can install the package with `uv tool install agent-hooks` and set `agent-hooks callback` as the hook callback command. The built-in app shows AppleScript dialogs on macOS for permission prompts.
+3. Provide a CLI runner for custom hook apps with `agent-hooks run`, using either FastAPI-style file discovery or uvicorn-style import strings.
 
 ## Package layout
 
@@ -17,7 +18,7 @@ Framework code lives at the first package level under `agent_hooks/`.
 The built-in CLI app lives under `agent_hooks/cli_app/`.
 
 - `agent_hooks/cli_app/app.py`: Built-in AppleScript-backed app instance with explicit decorator routes for notification, permission, stop, and stop-failure events.
-- `agent_hooks/cli_app/cli.py`: CLI entrypoint for `agent-hooks callback`.
+- `agent_hooks/cli_app/cli.py`: CLI entrypoint for `agent-hooks callback` and `agent-hooks run`.
 - `agent_hooks/__main__.py`: Thin module entrypoint that exposes the built-in CLI app.
 
 ## Install
@@ -33,6 +34,18 @@ agent-hooks callback
 ```
 
 The built-in CLI app is intended to work out of the box on macOS by showing AppleScript dialogs for permission requests.
+
+To run your own hook app from the CLI, you can either point at a Python file:
+
+```bash
+agent-hooks run main.py
+```
+
+Or use an explicit import string with an app directory, similar to uvicorn:
+
+```bash
+agent-hooks run main:app --app-dir .
+```
 
 ## Framework usage
 
@@ -68,11 +81,17 @@ from agent_hooks.runner import run_callback
 run_callback("my_hooks:app")
 ```
 
+The CLI `run` command supports the same import-string style:
+
+```bash
+agent-hooks run my_hooks:app --app-dir .
+```
+
 Any custom response model is acceptable as long as it fits the hook response protocol: it must expose `suppress_output`, `hook_specific_output`, and `as_payload()`.
 
 ## Built-in CLI app
 
-The built-in app is exposed from `agent_hooks.cli_app.app` as both:
+The built-in app is exposed from `agent_hooks.cli_app.app` as:
 
 - `app`
 

@@ -9,6 +9,7 @@ import pytest
 
 from agent_hooks import AgentHook, CallbackRequest, NotificationEvent, PermissionRequestEvent
 from agent_hooks.cli_app.app import app
+from agent_hooks.cli_app.cli import main as cli_main
 from agent_hooks.config import (
     ApplicationLoggingConfig,
     AuditLoggingConfig,
@@ -31,7 +32,13 @@ from agent_hooks.processor import (
     process_hook,
     process_permission_request,
 )
-from agent_hooks.runner import run_callback
+from agent_hooks.runner import (
+    discover_agent_hook_name,
+    load_callback_target,
+    load_run_callback_target,
+    module_name_from_path,
+    run_callback,
+)
 from agent_hooks.transport import DisplayTransport
 
 
@@ -93,6 +100,31 @@ def build_runtime_config(tmp_path: Path) -> RuntimeConfig:
                 backup_count=1,
             ),
         ),
+    )
+
+
+def write_app_module(
+    module_path: Path,
+    *,
+    variable_name: str = "app",
+    extra_body: str = "",
+) -> None:
+    module_path.write_text(
+        "\n".join(
+            line
+            for line in (
+                "from __future__ import annotations",
+                "",
+                "from agent_hooks import AgentHook",
+                "",
+                f"{variable_name} = AgentHook(fallback_to_default_processor=False)",
+                extra_body,
+                "",
+            )
+            if line != ""
+        )
+        + "\n",
+        encoding="utf-8",
     )
 
 
@@ -424,6 +456,51 @@ class TestRuntimeConfig:
         assert config.audit_logging.response_file.path == tmp_path / "runtime" / "response.log"
 
 
+class TestRunTargetLoading:
+    def test_module_name_from_path_uses_app_dir(self, tmp_path: Path) -> None:
+        module_path = tmp_path / "package" / "main.py"
+        module_path.parent.mkdir()
+        module_path.write_text("", encoding="utf-8")
+
+        module_name = module_name_from_path(module_path, app_dir=tmp_path)
+
+        assert module_name == "package.main"
+
+    def test_discover_agent_hook_name_from_python_file(self, tmp_path: Path) -> None:
+        module_path = tmp_path / "file_discovery_hooks.py"
+        write_app_module(module_path)
+
+        discovered_name = discover_agent_hook_name(module_path)
+
+        assert discovered_name == "app"
+
+    def test_discover_agent_hook_name_raises_when_missing_instance(self, tmp_path: Path) -> None:
+        module_path = tmp_path / "missing_hooks.py"
+        module_path.write_text(
+            "from __future__ import annotations\n\nvalue = 1\n",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValueError, match="No top-level AgentHook"):
+            discover_agent_hook_name(module_path)
+
+    def test_load_callback_target_accepts_app_dir(self, tmp_path: Path) -> None:
+        module_path = tmp_path / "import_string_hooks.py"
+        write_app_module(module_path)
+
+        target = load_callback_target("import_string_hooks:app", app_dir=tmp_path)
+
+        assert isinstance(target, AgentHook)
+
+    def test_load_run_callback_target_supports_python_file(self, tmp_path: Path) -> None:
+        module_path = tmp_path / "file_run_hooks.py"
+        write_app_module(module_path)
+
+        target = load_run_callback_target("file_run_hooks.py", app_dir=tmp_path)
+
+        assert isinstance(target, AgentHook)
+
+
 class TestRunCallback:
     def test_run_callback_emits_structured_response_and_writes_logs(
         self,
@@ -568,3 +645,47 @@ class TestRunCallback:
             '{"suppressOutput":true,"hookSpecificOutput":{"hookEventName":"PermissionRequest",'
             '"decision":{"behavior":"deny"}}}\n'
         )
+
+
+class TestCliMain:
+    def test_main_run_loads_python_file_target(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        module_path = tmp_path / "cli_file_hooks.py"
+        write_app_module(module_path)
+        captured_target: object | None = None
+
+        def fake_run_callback(target: object) -> int:
+            nonlocal captured_target
+            captured_target = target
+            return 27
+
+        monkeypatch.setattr("agent_hooks.cli_app.cli.run_callback", fake_run_callback)
+
+        exit_code = cli_main(["run", "cli_file_hooks.py", "--app-dir", str(tmp_path)])
+
+        assert exit_code == 27
+        assert isinstance(captured_target, AgentHook)
+
+    def test_main_run_loads_import_target_with_app_dir(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        module_path = tmp_path / "cli_import_hooks.py"
+        write_app_module(module_path)
+        captured_target: object | None = None
+
+        def fake_run_callback(target: object) -> int:
+            nonlocal captured_target
+            captured_target = target
+            return 19
+
+        monkeypatch.setattr("agent_hooks.cli_app.cli.run_callback", fake_run_callback)
+
+        exit_code = cli_main(["run", "cli_import_hooks:app", "--app-dir", str(tmp_path)])
+
+        assert exit_code == 19
+        assert isinstance(captured_target, AgentHook)
