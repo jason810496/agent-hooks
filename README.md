@@ -13,6 +13,7 @@ Framework code lives at the first package level under `agent_hooks/`.
 - `agent_hooks/router.py`: FastAPI-like decorator router such as `@app.permission()`.
 - `agent_hooks/runner.py`: Generic callback runtime for loading and executing a router or handler.
 - `agent_hooks/models.py`: Core response and payload models.
+- `agent_hooks/providers/`: Provider-specific schema adapters for `claude-code` and `codex`.
 - `agent_hooks/processor.py`: Default processing helpers such as `build_permission_response()`.
 
 The built-in CLI app lives under `agent_hooks/cli_app/`.
@@ -33,6 +34,16 @@ After installation, configure your AI coding tool to invoke:
 agent-hooks callback
 ```
 
+Select the hook protocol provider with either `--provider` or `AGENT_HOOK_PROVIDER`:
+
+```bash
+agent-hooks callback --provider codex
+```
+
+```bash
+AGENT_HOOK_PROVIDER=claude-code agent-hooks callback
+```
+
 The built-in CLI app is intended to work out of the box on macOS by showing AppleScript dialogs for permission requests.
 
 To run your own hook app from the CLI, you can either point at a Python file:
@@ -47,6 +58,8 @@ Or use an explicit import string with an app directory, similar to uvicorn:
 agent-hooks run main:app --app-dir .
 ```
 
+Both CLI entrypoints accept `--provider claude-code|codex`.
+
 ## Framework usage
 
 Create your own hook app with a FastAPI-like interface:
@@ -54,10 +67,10 @@ Create your own hook app with a FastAPI-like interface:
 ```python
 from __future__ import annotations
 
-from agent_hooks import AgentHook, PermissionRequestEvent, build_permission_response
+from agent_hooks import AgentHook, HookProvider, PermissionRequestEvent, build_permission_response
 from agent_hooks.enums import DialogButton
 
-app = AgentHook()
+app = AgentHook(provider=HookProvider.CODEX)
 
 
 @app.permission()
@@ -86,6 +99,8 @@ The CLI `run` command supports the same import-string style:
 ```bash
 agent-hooks run my_hooks:app --app-dir .
 ```
+
+The normalized router model is provider-neutral. For example, Claude `PermissionRequest` and Codex `PreToolUse` both route through `@app.permission()`.
 
 Any custom response model is acceptable as long as it fits the hook response protocol: it must expose `suppress_output`, `hook_specific_output`, and `as_payload()`.
 

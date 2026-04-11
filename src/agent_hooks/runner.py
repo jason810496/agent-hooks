@@ -15,6 +15,7 @@ from types import ModuleType
 from typing import IO, Protocol, TypeAlias, cast
 
 from agent_hooks.config import RuntimeConfig, load_runtime_config
+from agent_hooks.enums import HookProvider
 from agent_hooks.logging_utils import (
     append_application_log,
     append_input_audit_log,
@@ -23,6 +24,7 @@ from agent_hooks.logging_utils import (
 from agent_hooks.models import (
     ApplicationLogRecord,
     HookInput,
+    HookPayload,
     HookProcessingResult,
     HookResponse,
     HookResponseProtocol,
@@ -31,6 +33,7 @@ from agent_hooks.models import (
 )
 from agent_hooks.parsing import read_hook_input
 from agent_hooks.processor import process_hook
+from agent_hooks.providers import coerce_provider, render_response_payload
 from agent_hooks.transport import AppleScriptTransport, DisplayTransport
 
 
@@ -69,28 +72,49 @@ CallbackTarget: TypeAlias = str | CallbackDispatcher | CallbackHandler
 
 def emit_hook_response(
     response: HookResponseProtocol | None = None,
+    *,
+    provider: HookProvider | str | None = None,
+    input_payload: HookPayload | None = None,
     stdout: IO[str] | None = None,
 ) -> None:
-    """Emit the structured response JSON expected by Claude.
+    """Emit the structured response JSON expected by the selected provider.
 
     :param response: Hook response to emit.
     :type response: HookResponseProtocol | None
+    :param provider: Hook protocol provider.
+    :type provider: HookProvider | str | None
+    :param input_payload: Parsed hook payload used to select the wire schema.
+    :type input_payload: HookPayload | None
     :param stdout: Optional output stream override.
     :type stdout: IO[str] | None
     """
     stream = stdout if stdout is not None else sys.stdout
-    stream.write(render_hook_response(response))
+    stream.write(render_hook_response(response, provider=provider, input_payload=input_payload))
 
 
-def render_hook_response(response: HookResponseProtocol | None = None) -> str:
-    """Render the structured response JSON expected by Claude.
+def render_hook_response(
+    response: HookResponseProtocol | None = None,
+    *,
+    provider: HookProvider | str | None = None,
+    input_payload: HookPayload | None = None,
+) -> str:
+    """Render the structured response JSON expected by the selected provider.
 
     :param response: Hook response to render.
     :type response: HookResponseProtocol | None
+    :param provider: Hook protocol provider.
+    :type provider: HookProvider | str | None
+    :param input_payload: Parsed hook payload used to select the wire schema.
+    :type input_payload: HookPayload | None
     :return: Serialized response text, including the trailing newline.
     """
     buffer = StringIO()
-    json.dump((response or HookResponse()).as_payload(), buffer, separators=(",", ":"))
+    payload = render_response_payload(
+        provider,
+        response or HookResponse(),
+        input_payload=input_payload,
+    )
+    json.dump(payload, buffer, separators=(",", ":"))
     buffer.write("\n")
     return buffer.getvalue()
 
@@ -102,6 +126,7 @@ def run_callback(
     stdout: IO[str] | None = None,
     runtime_config: RuntimeConfig | None = None,
     transport: DisplayTransport | None = None,
+    provider: HookProvider | str | None = None,
 ) -> int:
     """Process hook JSON from stdin and emit the callback response.
 
@@ -115,14 +140,19 @@ def run_callback(
     :type runtime_config: RuntimeConfig | None
     :param transport: Optional UI transport override.
     :type transport: DisplayTransport | None
+    :param provider: Optional hook protocol provider override.
+    :type provider: HookProvider | str | None
     :return: Process exit code.
     """
     config = runtime_config or load_runtime_config()
     callback_target = resolve_callback_target(hook)
-    input_data = read_hook_input(stdin)
+    selected_provider = resolve_provider(provider, callback_target, config)
+    input_data = read_hook_input(stdin, provider=selected_provider)
+    resolved_provider = input_data.payload.provider
     append_input_audit_log(
         InputAuditLogRecord(
             timestamp=datetime.now(timezone.utc).isoformat(),
+            provider=resolved_provider.value,
             hook_event_name=input_data.payload.raw_event_name,
             session_id=input_data.payload.session_id,
             cwd=input_data.payload.cwd,
@@ -132,12 +162,17 @@ def run_callback(
     )
     display_transport = transport or AppleScriptTransport(skip_osascript=config.skip_osascript)
     result = dispatch_callback(callback_target, input_data, display_transport)
-    response_text = render_hook_response(result.response)
+    response_text = render_hook_response(
+        result.response,
+        provider=resolved_provider,
+        input_payload=input_data.payload,
+    )
 
     timestamp = datetime.now(timezone.utc).isoformat()
     append_response_audit_log(
         ResponseAuditLogRecord(
             timestamp=timestamp,
+            provider=resolved_provider.value,
             hook_event_name=input_data.payload.raw_event_name,
             session_id=input_data.payload.session_id,
             cwd=input_data.payload.cwd,
@@ -148,6 +183,7 @@ def run_callback(
     append_application_log(
         ApplicationLogRecord(
             timestamp=timestamp,
+            provider=resolved_provider.value,
             hook_event_name=input_data.payload.raw_event_name,
             session_id=input_data.payload.session_id,
             cwd=input_data.payload.cwd,
@@ -165,8 +201,28 @@ def run_callback(
         ),
         config.application_logging,
     )
-    emit_hook_response(result.response, stdout=stdout)
+    emit_hook_response(
+        result.response,
+        provider=resolved_provider,
+        input_payload=input_data.payload,
+        stdout=stdout,
+    )
     return 0
+
+
+def resolve_provider(
+    provider: HookProvider | str | None,
+    callback_target: CallbackTarget | None,
+    runtime_config: RuntimeConfig,
+) -> HookProvider | str | None:
+    """Resolve the effective provider for one callback run."""
+    if provider is not None:
+        return coerce_provider(provider)
+
+    callback_provider = getattr(callback_target, "provider", None)
+    if callback_provider is not None:
+        return coerce_provider(cast(HookProvider | str, callback_provider))
+    return runtime_config.provider
 
 
 def load_run_callback_target(reference: str, *, app_dir: str | Path = ".") -> CallbackTarget:

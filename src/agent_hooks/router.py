@@ -8,7 +8,7 @@ from inspect import Parameter, signature
 from typing import IO, TypeAlias, TypeVar, get_type_hints
 
 from agent_hooks.config import RuntimeConfig
-from agent_hooks.enums import HookEventName
+from agent_hooks.enums import HookEventName, HookProvider
 from agent_hooks.models import (
     HookInput,
     HookPayload,
@@ -33,6 +33,21 @@ class NotificationEvent(HookPayload):
 @dataclass(frozen=True)
 class PermissionRequestEvent(HookPayload):
     """Represent a normalized permission request hook payload."""
+
+
+@dataclass(frozen=True)
+class SessionStartEvent(HookPayload):
+    """Represent a normalized session-start hook payload."""
+
+
+@dataclass(frozen=True)
+class UserPromptSubmitEvent(HookPayload):
+    """Represent a normalized user-prompt-submit hook payload."""
+
+
+@dataclass(frozen=True)
+class PostToolUseEvent(HookPayload):
+    """Represent a normalized post-tool-use hook payload."""
 
 
 @dataclass(frozen=True)
@@ -103,14 +118,27 @@ class _InjectedArgument:
 class AgentHook:
     """Register decorator-based callback handlers and dispatch hook events."""
 
-    def __init__(self, *, fallback_to_default_processor: bool = True) -> None:
+    def __init__(
+        self,
+        *,
+        fallback_to_default_processor: bool = True,
+        provider: HookProvider | str | None = None,
+    ) -> None:
         """Initialize the hook router.
 
         :param fallback_to_default_processor: Whether to keep the built-in processor as a fallback.
         :type fallback_to_default_processor: bool
+        :param provider: Optional default provider for parsing and response rendering.
+        :type provider: HookProvider | str | None
         """
         self._fallback_to_default_processor = fallback_to_default_processor
+        self._provider = HookProvider(provider) if isinstance(provider, str) else provider
         self._routes: dict[HookEventName, _RouteDefinition] = {}
+
+    @property
+    def provider(self) -> HookProvider | None:
+        """Return the router's default provider, when configured."""
+        return self._provider
 
     def notification(self) -> RouteDecorator[NotificationEvent]:
         """Register a handler for ``Notification`` events.
@@ -120,11 +148,27 @@ class AgentHook:
         return self._register(HookEventName.NOTIFICATION, NotificationEvent)
 
     def permission(self) -> RouteDecorator[PermissionRequestEvent]:
-        """Register a handler for ``PermissionRequest`` events.
+        """Register a handler for normalized permission-request events.
 
         :return: Decorator that stores the handler.
         """
         return self._register(HookEventName.PERMISSION_REQUEST, PermissionRequestEvent)
+
+    def pre_tool_use(self) -> RouteDecorator[PermissionRequestEvent]:
+        """Register a handler for Codex ``PreToolUse`` events."""
+        return self.permission()
+
+    def session_start(self) -> RouteDecorator[SessionStartEvent]:
+        """Register a handler for ``SessionStart`` events."""
+        return self._register(HookEventName.SESSION_START, SessionStartEvent)
+
+    def user_prompt_submit(self) -> RouteDecorator[UserPromptSubmitEvent]:
+        """Register a handler for ``UserPromptSubmit`` events."""
+        return self._register(HookEventName.USER_PROMPT_SUBMIT, UserPromptSubmitEvent)
+
+    def post_tool_use(self) -> RouteDecorator[PostToolUseEvent]:
+        """Register a handler for ``PostToolUse`` events."""
+        return self._register(HookEventName.POST_TOOL_USE, PostToolUseEvent)
 
     def stop(self) -> RouteDecorator[StopEvent]:
         """Register a handler for ``Stop`` events.
@@ -170,6 +214,7 @@ class AgentHook:
         stdout: IO[str] | None = None,
         runtime_config: RuntimeConfig | None = None,
         transport: DisplayTransport | None = None,
+        provider: HookProvider | str | None = None,
     ) -> int:
         """Run the standard callback flow with this router instance.
 
@@ -181,6 +226,8 @@ class AgentHook:
         :type runtime_config: RuntimeConfig | None
         :param transport: Optional UI transport override.
         :type transport: DisplayTransport | None
+        :param provider: Optional provider override.
+        :type provider: HookProvider | str | None
         :return: Process exit code.
         """
         from agent_hooks.runner import run_callback
@@ -191,6 +238,7 @@ class AgentHook:
             runtime_config=runtime_config,
             transport=transport,
             hook=self,
+            provider=provider or self._provider,
         )
 
     def _register(

@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
-from agent_hooks.models import HookProcessingResult
+from agent_hooks.models import HookProcessingResult, HookResponse
 from agent_hooks.processor import process_notification_event, process_permission_request
 from agent_hooks.router import (
     AgentHook,
     NotificationEvent,
     PermissionRequestEvent,
+    PostToolUseEvent,
+    SessionStartEvent,
     StopEvent,
     StopFailureEvent,
+    UserPromptSubmitEvent,
 )
 from agent_hooks.transport import DisplayTransport
 
@@ -30,8 +33,26 @@ def permission_handler(
     hook_event: PermissionRequestEvent,
     transport: DisplayTransport,
 ) -> HookProcessingResult:
-    """Handle built-in permission request events."""
+    """Handle Claude permission requests and Codex pre-tool-use events."""
     return process_permission_request(hook_event, transport)
+
+
+@app.session_start()
+def session_start_handler(_hook_event: SessionStartEvent) -> HookResponse:
+    """Handle built-in Codex session-start events."""
+    return HookResponse()
+
+
+@app.user_prompt_submit()
+def user_prompt_submit_handler(_hook_event: UserPromptSubmitEvent) -> HookResponse:
+    """Handle built-in Codex user-prompt-submit events."""
+    return HookResponse()
+
+
+@app.post_tool_use()
+def post_tool_use_handler(_hook_event: PostToolUseEvent) -> HookResponse:
+    """Handle built-in Codex post-tool-use events."""
+    return HookResponse()
 
 
 @app.stop()

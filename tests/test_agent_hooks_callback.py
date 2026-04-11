@@ -17,7 +17,14 @@ from agent_hooks.config import (
     RuntimeConfig,
     load_runtime_config,
 )
-from agent_hooks.enums import AppleScriptInvocation, DialogButton, TransportStatus
+from agent_hooks.enums import (
+    AppleScriptInvocation,
+    DialogButton,
+    HookControlDecision,
+    HookEventName,
+    HookProvider,
+    TransportStatus,
+)
 from agent_hooks.models import (
     AppleScriptDialogResponse,
     AppleScriptResult,
@@ -37,6 +44,7 @@ from agent_hooks.runner import (
     load_callback_target,
     load_run_callback_target,
     module_name_from_path,
+    render_hook_response,
     run_callback,
 )
 from agent_hooks.transport import DisplayTransport
@@ -73,10 +81,15 @@ class FakeTransport:
         return self._dialog_result
 
 
-def build_runtime_config(tmp_path: Path) -> RuntimeConfig:
+def build_runtime_config(
+    tmp_path: Path,
+    *,
+    provider: HookProvider = HookProvider.CLAUDE_CODE,
+) -> RuntimeConfig:
     return RuntimeConfig(
         project_root=tmp_path,
         log_directory=tmp_path / "logs",
+        provider=provider,
         skip_osascript=True,
         application_logging=ApplicationLoggingConfig(
             file=FileLoggingConfig(
@@ -135,6 +148,35 @@ class TestReadHookInput:
         assert result.parse_error is not None
         assert result.parse_error.startswith("Invalid hook JSON:")
 
+    def test_codex_provider_normalizes_pre_tool_use_payload(self) -> None:
+        result = read_hook_input(
+            StringIO(
+                """
+                {
+                  "hook_event_name": "PreToolUse",
+                  "cwd": "/tmp/project",
+                  "model": "gpt-5.4",
+                  "permission_mode": "default",
+                  "session_id": "session-1",
+                  "tool_input": {"command": "git status"},
+                  "tool_name": "Bash",
+                  "tool_use_id": "tool-1",
+                  "transcript_path": null,
+                  "turn_id": "turn-1"
+                }
+                """
+            ),
+            provider=HookProvider.CODEX,
+        )
+
+        assert result.parse_error is None
+        assert result.payload.provider == HookProvider.CODEX
+        assert result.payload.event_name.value == "PermissionRequest"
+        assert result.payload.raw_event_name == "PreToolUse"
+        assert result.payload.tool_input.command == "git status"
+        assert result.payload.model == "gpt-5.4"
+        assert result.payload.turn_id == "turn-1"
+
 
 class TestPresentation:
     def test_permission_dialog_includes_session_rule_preview(self) -> None:
@@ -156,6 +198,28 @@ class TestPresentation:
 
         assert dialog.default_button == DialogButton.ALLOW_ONCE
         assert '"Always Allow" adds session rule: Bash(git *)' in dialog.message
+
+    def test_codex_permission_dialog_uses_two_buttons(self) -> None:
+        payload = build_hook_payload(
+            {
+                "hook_event_name": "PreToolUse",
+                "cwd": "/tmp/project",
+                "model": "gpt-5.4",
+                "permission_mode": "default",
+                "session_id": "session-1",
+                "tool_input": {"command": "git status"},
+                "tool_name": "Bash",
+                "tool_use_id": "tool-1",
+                "transcript_path": None,
+                "turn_id": "turn-1",
+            },
+            provider=HookProvider.CODEX,
+        )
+
+        dialog = build_permission_dialog(payload)
+
+        assert dialog.title == "Codex — Permission Request"
+        assert dialog.buttons == (DialogButton.DENY, DialogButton.ALLOW_ONCE)
 
 
 class TestPermissionResponse:
@@ -196,6 +260,160 @@ class TestPermissionResponse:
                     ],
                 },
             },
+        }
+
+    def test_codex_denied_permission_renders_pre_tool_use_block(self) -> None:
+        payload = build_hook_payload(
+            {
+                "hook_event_name": "PreToolUse",
+                "cwd": "/tmp/project",
+                "model": "gpt-5.4",
+                "permission_mode": "default",
+                "session_id": "session-1",
+                "tool_input": {"command": "git status"},
+                "tool_name": "Bash",
+                "tool_use_id": "tool-1",
+                "transcript_path": None,
+                "turn_id": "turn-1",
+            },
+            provider=HookProvider.CODEX,
+        )
+
+        response = build_permission_response(DialogButton.DENY, payload)
+
+        assert json.loads(
+            render_hook_response(
+                response,
+                provider=HookProvider.CODEX,
+                input_payload=payload,
+            )
+        ) == {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": "Permission denied by local user.",
+            },
+        }
+
+    def test_codex_allow_once_renders_empty_pre_tool_use_response(self) -> None:
+        payload = build_hook_payload(
+            {
+                "hook_event_name": "PreToolUse",
+                "cwd": "/tmp/project",
+                "model": "gpt-5.4",
+                "permission_mode": "default",
+                "session_id": "session-1",
+                "tool_input": {"command": "git status"},
+                "tool_name": "Bash",
+                "tool_use_id": "tool-1",
+                "transcript_path": None,
+                "turn_id": "turn-1",
+            },
+            provider=HookProvider.CODEX,
+        )
+
+        response = build_permission_response(DialogButton.ALLOW_ONCE, payload)
+
+        assert (
+            json.loads(
+                render_hook_response(
+                    response,
+                    provider=HookProvider.CODEX,
+                    input_payload=payload,
+                )
+            )
+            == {}
+        )
+
+    def test_codex_always_allow_falls_back_to_empty_pre_tool_use_response(self) -> None:
+        payload = build_hook_payload(
+            {
+                "hook_event_name": "PreToolUse",
+                "cwd": "/tmp/project",
+                "model": "gpt-5.4",
+                "permission_mode": "default",
+                "session_id": "session-1",
+                "tool_input": {"command": "git status"},
+                "tool_name": "Bash",
+                "tool_use_id": "tool-1",
+                "transcript_path": None,
+                "turn_id": "turn-1",
+            },
+            provider=HookProvider.CODEX,
+        )
+
+        response = build_permission_response(DialogButton.ALWAYS_ALLOW, payload)
+
+        assert (
+            json.loads(
+                render_hook_response(
+                    response,
+                    provider=HookProvider.CODEX,
+                    input_payload=payload,
+                )
+            )
+            == {}
+        )
+
+    def test_claude_stop_response_includes_supported_top_level_fields(self) -> None:
+        payload = build_hook_payload(
+            {
+                "hook_event_name": "Stop",
+                "last_assistant_message": "Done.",
+            }
+        )
+
+        response = HookResponse(
+            continue_=False,
+            stop_reason="Continue working.",
+            system_message="One more step required.",
+        )
+
+        assert json.loads(
+            render_hook_response(
+                response,
+                provider=HookProvider.CLAUDE_CODE,
+                input_payload=payload,
+            )
+        ) == {
+            "continue": False,
+            "stopReason": "Continue working.",
+            "suppressOutput": True,
+            "systemMessage": "One more step required.",
+        }
+
+    def test_codex_stop_response_omits_suppress_output(self) -> None:
+        payload = build_hook_payload(
+            {
+                "hook_event_name": "Stop",
+                "cwd": "/tmp/project",
+                "last_assistant_message": "Done.",
+                "model": "gpt-5.4",
+                "permission_mode": "default",
+                "session_id": "session-1",
+                "stop_hook_active": False,
+                "transcript_path": None,
+                "turn_id": "turn-1",
+            },
+            provider=HookProvider.CODEX,
+        )
+
+        response = HookResponse(
+            decision=HookControlDecision.BLOCK,
+            reason="Run one more pass.",
+            system_message="Continuing.",
+        )
+
+        assert json.loads(
+            render_hook_response(
+                response,
+                provider=HookProvider.CODEX,
+                input_payload=payload,
+            )
+        ) == {
+            "decision": "block",
+            "reason": "Run one more pass.",
+            "systemMessage": "Continuing.",
         }
 
 
@@ -433,6 +651,7 @@ class TestRuntimeConfig:
         env = {
             "AGENT_HOOK_PROJECT_ROOT": str(tmp_path),
             "AGENT_HOOK_LOG_DIR": "var/logs",
+            "AGENT_HOOK_PROVIDER": "codex",
             "AGENT_HOOK_DISABLE_OSASCRIPT": "true",
             "AGENT_HOOK_APP_LOG_PATH": "runtime/app.log",
             "AGENT_HOOK_APP_LOG_FORMAT": "%(levelname)s %(message)s",
@@ -446,6 +665,7 @@ class TestRuntimeConfig:
 
         assert config.project_root == tmp_path
         assert config.log_directory == tmp_path / "var" / "logs"
+        assert config.provider == HookProvider.CODEX
         assert config.skip_osascript is True
         assert config.application_logging.file.path == tmp_path / "runtime" / "app.log"
         assert config.application_logging.level == logging.DEBUG
@@ -454,6 +674,11 @@ class TestRuntimeConfig:
         assert config.audit_logging.input_file.max_bytes == 2048
         assert config.audit_logging.response_file.backup_count == 6
         assert config.audit_logging.response_file.path == tmp_path / "runtime" / "response.log"
+
+    def test_load_runtime_config_leaves_provider_unset_by_default(self) -> None:
+        config = load_runtime_config({})
+
+        assert config.provider is None
 
 
 class TestRunTargetLoading:
@@ -502,6 +727,13 @@ class TestRunTargetLoading:
 
 
 class TestRunCallback:
+    def test_builtin_app_registers_codex_routes(self) -> None:
+        assert HookEventName.PERMISSION_REQUEST in app._routes
+        assert HookEventName.SESSION_START in app._routes
+        assert HookEventName.USER_PROMPT_SUBMIT in app._routes
+        assert HookEventName.POST_TOOL_USE in app._routes
+        assert HookEventName.STOP in app._routes
+
     def test_run_callback_emits_structured_response_and_writes_logs(
         self,
         tmp_path: Path,
@@ -531,17 +763,20 @@ class TestRunCallback:
             '"decision":{"behavior":"allow"}}}\n'
         )
         input_audit_record = json.loads(runtime_config.raw_log_path.read_text(encoding="utf-8"))
+        assert input_audit_record["provider"] == "claude-code"
         assert input_audit_record["hook_event_name"] == "PermissionRequest"
         assert input_audit_record["raw_input"].strip().startswith("{")
 
         response_audit_record = json.loads(
             runtime_config.response_log_path.read_text(encoding="utf-8")
         )
+        assert response_audit_record["provider"] == "claude-code"
         assert response_audit_record["hook_event_name"] == "PermissionRequest"
         assert response_audit_record["hook_response"] == stdout.getvalue()
 
         app_log = runtime_config.log_path.read_text(encoding="utf-8")
         assert app_log.startswith("INFO ")
+        assert '"provider": "claude-code"' in app_log
         assert '"hook_event_name": "PermissionRequest"' in app_log
         expected_response_bytes = len(stdout.getvalue().encode("utf-8"))
         assert f'"response_bytes": {expected_response_bytes}' in app_log
@@ -575,6 +810,118 @@ class TestRunCallback:
             '{"suppressOutput":true,"hookSpecificOutput":{"hookEventName":"PermissionRequest",'
             '"decision":{"behavior":"allow"}}}\n'
         )
+
+    def test_run_callback_supports_codex_provider(self, tmp_path: Path) -> None:
+        stdin = StringIO(
+            """
+            {
+              "hook_event_name": "PreToolUse",
+              "cwd": "/tmp/project",
+              "model": "gpt-5.4",
+              "permission_mode": "default",
+              "session_id": "session-1",
+              "tool_input": {"command": "git status"},
+              "tool_name": "Bash",
+              "tool_use_id": "tool-1",
+              "transcript_path": null,
+              "turn_id": "turn-1"
+            }
+            """
+        )
+        stdout = StringIO()
+        runtime_config = build_runtime_config(tmp_path, provider=HookProvider.CODEX)
+
+        exit_code = run_callback(
+            stdin=stdin,
+            stdout=stdout,
+            runtime_config=runtime_config,
+            transport=FakeTransport(),
+        )
+
+        assert exit_code == 0
+        assert json.loads(stdout.getvalue()) == {}
+
+    def test_run_callback_auto_detects_codex_provider_for_pre_tool_use(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        stdin = StringIO(
+            """
+            {
+              "hook_event_name": "PreToolUse",
+              "cwd": "/tmp/project",
+              "model": "gpt-5.4",
+              "permission_mode": "default",
+              "session_id": "session-1",
+              "tool_input": {"command": "git status"},
+              "tool_name": "Bash",
+              "tool_use_id": "tool-1",
+              "transcript_path": null,
+              "turn_id": "turn-1"
+            }
+            """
+        )
+        stdout = StringIO()
+
+        exit_code = run_callback(
+            stdin=stdin,
+            stdout=stdout,
+            runtime_config=load_runtime_config({}),
+            transport=FakeTransport(),
+        )
+
+        assert exit_code == 0
+        assert json.loads(stdout.getvalue()) == {}
+
+    def test_run_callback_codex_denial_renders_pre_tool_use_decision(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        stdin = StringIO(
+            """
+            {
+              "hook_event_name": "PreToolUse",
+              "cwd": "/tmp/project",
+              "model": "gpt-5.4",
+              "permission_mode": "default",
+              "session_id": "session-1",
+              "tool_input": {"command": "git status"},
+              "tool_name": "Bash",
+              "tool_use_id": "tool-1",
+              "transcript_path": null,
+              "turn_id": "turn-1"
+            }
+            """
+        )
+        stdout = StringIO()
+        runtime_config = build_runtime_config(tmp_path)
+        transport = FakeTransport(
+            dialog_result=DialogResult(
+                button=DialogButton.DENY,
+                transport=AppleScriptResult(
+                    status=TransportStatus.SUCCEEDED,
+                    invocation=AppleScriptInvocation.DIALOG,
+                    stdout="button returned:Deny",
+                ),
+            )
+        )
+
+        exit_code = run_callback(
+            stdin=stdin,
+            stdout=stdout,
+            runtime_config=runtime_config,
+            transport=transport,
+            provider=HookProvider.CODEX,
+        )
+
+        assert exit_code == 0
+        assert json.loads(stdout.getvalue()) == {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": "Permission denied by local user.",
+            },
+        }
 
     def test_run_callback_accepts_callback_instance(
         self,
@@ -646,6 +993,37 @@ class TestRunCallback:
             '"decision":{"behavior":"deny"}}}\n'
         )
 
+    def test_agent_hook_provider_is_used_by_default(self, tmp_path: Path) -> None:
+        hook = AgentHook(provider=HookProvider.CODEX)
+        stdin = StringIO(
+            """
+            {
+              "hook_event_name": "PreToolUse",
+              "cwd": "/tmp/project",
+              "model": "gpt-5.4",
+              "permission_mode": "default",
+              "session_id": "session-1",
+              "tool_input": {"command": "git status"},
+              "tool_name": "Bash",
+              "tool_use_id": "tool-1",
+              "transcript_path": null,
+              "turn_id": "turn-1"
+            }
+            """
+        )
+        stdout = StringIO()
+        runtime_config = build_runtime_config(tmp_path)
+
+        exit_code = hook.run_callback(
+            stdin=stdin,
+            stdout=stdout,
+            runtime_config=runtime_config,
+            transport=FakeTransport(),
+        )
+
+        assert exit_code == 0
+        assert json.loads(stdout.getvalue()) == {}
+
 
 class TestCliMain:
     def test_main_run_loads_python_file_target(
@@ -656,18 +1034,24 @@ class TestCliMain:
         module_path = tmp_path / "cli_file_hooks.py"
         write_app_module(module_path)
         captured_target: object | None = None
+        captured_provider: str | None = None
 
-        def fake_run_callback(target: object) -> int:
+        def fake_run_callback(target: object, *, provider: str | None = None) -> int:
             nonlocal captured_target
+            nonlocal captured_provider
             captured_target = target
+            captured_provider = provider
             return 27
 
         monkeypatch.setattr("agent_hooks.cli_app.cli.run_callback", fake_run_callback)
 
-        exit_code = cli_main(["run", "cli_file_hooks.py", "--app-dir", str(tmp_path)])
+        exit_code = cli_main(
+            ["run", "cli_file_hooks.py", "--app-dir", str(tmp_path), "--provider", "codex"]
+        )
 
         assert exit_code == 27
         assert isinstance(captured_target, AgentHook)
+        assert captured_provider == "codex"
 
     def test_main_run_loads_import_target_with_app_dir(
         self,
@@ -677,15 +1061,43 @@ class TestCliMain:
         module_path = tmp_path / "cli_import_hooks.py"
         write_app_module(module_path)
         captured_target: object | None = None
+        captured_provider: str | None = None
 
-        def fake_run_callback(target: object) -> int:
+        def fake_run_callback(target: object, *, provider: str | None = None) -> int:
             nonlocal captured_target
+            nonlocal captured_provider
             captured_target = target
+            captured_provider = provider
             return 19
 
         monkeypatch.setattr("agent_hooks.cli_app.cli.run_callback", fake_run_callback)
 
-        exit_code = cli_main(["run", "cli_import_hooks:app", "--app-dir", str(tmp_path)])
+        exit_code = cli_main(
+            ["run", "cli_import_hooks:app", "--app-dir", str(tmp_path), "--provider", "codex"]
+        )
 
         assert exit_code == 19
         assert isinstance(captured_target, AgentHook)
+        assert captured_provider == "codex"
+
+    def test_main_callback_passes_provider(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        captured_target: object | None = None
+        captured_provider: str | None = None
+
+        def fake_run_callback(target: object, *, provider: str | None = None) -> int:
+            nonlocal captured_target
+            nonlocal captured_provider
+            captured_target = target
+            captured_provider = provider
+            return 11
+
+        monkeypatch.setattr("agent_hooks.cli_app.cli.run_callback", fake_run_callback)
+
+        exit_code = cli_main(["callback", "--provider", "codex"])
+
+        assert exit_code == 11
+        assert captured_target == "cli_app.app:app"
+        assert captured_provider == "codex"

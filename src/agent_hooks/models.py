@@ -8,7 +8,9 @@ from typing import Protocol, TypeAlias
 from agent_hooks.enums import (
     AppleScriptInvocation,
     DialogButton,
+    HookControlDecision,
     HookEventName,
+    HookProvider,
     NotificationSound,
     NotificationType,
     PermissionBehavior,
@@ -57,18 +59,28 @@ class HookPayload:
     """Store the normalized hook payload used by processing logic."""
 
     raw: JsonObject = field(default_factory=dict)
+    provider: HookProvider = HookProvider.CLAUDE_CODE
     event_name: HookEventName = HookEventName.UNKNOWN
     raw_event_name: str = ""
     notification_type: NotificationType = NotificationType.UNKNOWN
     raw_notification_type: str = ""
+    model: str = ""
+    permission_mode: str = ""
     title: str = ""
     message: str = ""
+    prompt: str = ""
+    source: str = ""
     last_assistant_message: str = ""
     error_details: str = ""
     error: str = ""
     session_id: str = ""
     cwd: str = ""
+    transcript_path: str = ""
+    turn_id: str = ""
     tool_name: str = ""
+    tool_use_id: str = ""
+    stop_hook_active: bool = False
+    tool_response: JsonValue | None = None
     tool_input: ToolInput = field(default_factory=ToolInput)
     permission_suggestions: tuple[PermissionSuggestion, ...] = ()
 
@@ -142,7 +154,7 @@ class PermissionUpdate:
 
 @dataclass(frozen=True)
 class PermissionDecision:
-    """Store the structured permission decision sent back to Claude."""
+    """Store the structured permission decision sent back to a provider."""
 
     behavior: PermissionBehavior
     updated_permissions: tuple[PermissionUpdate, ...] = ()
@@ -165,17 +177,29 @@ class HookSpecificOutput:
     """Store hook-event-specific response content."""
 
     hook_event_name: HookEventName
-    decision: PermissionDecision
+    decision: PermissionDecision | None = None
+    additional_context: str = ""
+    permission_decision_reason: str = ""
+    updated_input: JsonValue | None = None
+    updated_mcp_tool_output: JsonValue | None = None
 
     def as_payload(self) -> JsonObject:
-        """Serialize the hook-specific output block.
+        """Serialize the normalized hook-specific output block.
 
-        :return: JSON payload for Claude's hook protocol.
+        :return: Provider-neutral JSON payload.
         """
-        return {
-            "hookEventName": self.hook_event_name.value,
-            "decision": self.decision.as_payload(),
-        }
+        payload: JsonObject = {"hookEventName": self.hook_event_name.value}
+        if self.decision is not None:
+            payload["decision"] = self.decision.as_payload()
+        if self.additional_context:
+            payload["additionalContext"] = self.additional_context
+        if self.permission_decision_reason:
+            payload["permissionDecisionReason"] = self.permission_decision_reason
+        if self.updated_input is not None:
+            payload["updatedInput"] = self.updated_input
+        if self.updated_mcp_tool_output is not None:
+            payload["updatedMCPToolOutput"] = self.updated_mcp_tool_output
+        return payload
 
 
 class HookResponseProtocol(Protocol):
@@ -195,13 +219,28 @@ class HookResponse:
 
     suppress_output: bool = True
     hook_specific_output: HookSpecificOutput | None = None
+    continue_: bool | None = None
+    stop_reason: str = ""
+    system_message: str = ""
+    decision: HookControlDecision | None = None
+    reason: str = ""
 
     def as_payload(self) -> JsonObject:
-        """Serialize the top-level hook response.
+        """Serialize the provider-neutral top-level hook response.
 
-        :return: JSON payload for Claude's hook protocol.
+        :return: Provider-neutral JSON payload.
         """
         payload: JsonObject = {"suppressOutput": self.suppress_output}
+        if self.continue_ is not None:
+            payload["continue"] = self.continue_
+        if self.stop_reason:
+            payload["stopReason"] = self.stop_reason
+        if self.system_message:
+            payload["systemMessage"] = self.system_message
+        if self.decision is not None:
+            payload["decision"] = self.decision.value
+        if self.reason:
+            payload["reason"] = self.reason
         if self.hook_specific_output is not None:
             payload["hookSpecificOutput"] = self.hook_specific_output.as_payload()
         return payload
@@ -218,23 +257,17 @@ class AppleScriptDialogResponse:
     @property
     def hook_specific_output(self) -> HookSpecificOutput | None:
         """Build the permission-specific output block."""
-        if self.button == DialogButton.DENY:
-            decision = PermissionDecision(behavior=PermissionBehavior.DENY)
+        if self.payload.provider == HookProvider.CODEX:
+            return _build_codex_hook_specific_output(self.button)
         else:
-            updates: tuple[PermissionUpdate, ...] = ()
-            if self.button == DialogButton.ALWAYS_ALLOW:
-                updates = tuple(
-                    PermissionUpdate(source=suggestion.raw)
-                    for suggestion in self.payload.permission_suggestions
-                )
-            decision = PermissionDecision(
-                behavior=PermissionBehavior.ALLOW,
-                updated_permissions=updates,
-            )
+            decision = _build_claude_permission_decision(self.button, self.payload)
 
         return HookSpecificOutput(
             hook_event_name=HookEventName.PERMISSION_REQUEST,
             decision=decision,
+            permission_decision_reason=(
+                "Permission denied by local user." if self.button == DialogButton.DENY else ""
+            ),
         )
 
     def as_payload(self) -> JsonObject:
@@ -246,6 +279,42 @@ class AppleScriptDialogResponse:
             suppress_output=self.suppress_output,
             hook_specific_output=self.hook_specific_output,
         ).as_payload()
+
+
+def _build_claude_permission_decision(
+    button: DialogButton,
+    payload: HookPayload,
+) -> PermissionDecision:
+    """Build the Claude Code permission decision for one dialog button."""
+    if button == DialogButton.DENY:
+        return PermissionDecision(behavior=PermissionBehavior.DENY)
+
+    updates: tuple[PermissionUpdate, ...] = ()
+    if button == DialogButton.ALWAYS_ALLOW:
+        updates = tuple(
+            PermissionUpdate(source=suggestion.raw) for suggestion in payload.permission_suggestions
+        )
+    return PermissionDecision(
+        behavior=PermissionBehavior.ALLOW,
+        updated_permissions=updates,
+    )
+
+
+def _build_codex_permission_decision(button: DialogButton) -> PermissionDecision:
+    """Build the Codex PreToolUse permission decision for one dialog button."""
+    return PermissionDecision(behavior=PermissionBehavior.DENY)
+
+
+def _build_codex_hook_specific_output(button: DialogButton) -> HookSpecificOutput | None:
+    """Build Codex PreToolUse output for one dialog button."""
+    if button != DialogButton.DENY:
+        return None
+
+    return HookSpecificOutput(
+        hook_event_name=HookEventName.PERMISSION_REQUEST,
+        decision=_build_codex_permission_decision(button),
+        permission_decision_reason="Permission denied by local user.",
+    )
 
 
 @dataclass(frozen=True)
@@ -263,6 +332,7 @@ class ApplicationLogRecord:
     """Store the application log entry for one callback execution."""
 
     timestamp: str
+    provider: str
     hook_event_name: str
     session_id: str
     cwd: str
@@ -284,6 +354,7 @@ class InputAuditLogRecord:
     """Store the raw input audit log entry for one callback execution."""
 
     timestamp: str
+    provider: str
     hook_event_name: str
     session_id: str
     cwd: str
@@ -295,6 +366,7 @@ class ResponseAuditLogRecord:
     """Store the response audit log entry for one callback execution."""
 
     timestamp: str
+    provider: str
     hook_event_name: str
     session_id: str
     cwd: str

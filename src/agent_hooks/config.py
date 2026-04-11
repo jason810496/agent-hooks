@@ -8,6 +8,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from agent_hooks.enums import HookProvider
+
 DEFAULT_LOG_MAX_BYTES = 5 * 1024 * 1024
 DEFAULT_LOG_BACKUP_COUNT = 5
 DEFAULT_APPLICATION_LOG_LEVEL = "INFO"
@@ -22,6 +24,7 @@ APPLICATION_LOG_LEVEL_ENV_VAR = "AGENT_HOOK_APP_LOG_LEVEL"
 APPLICATION_LOG_PATH_ENV_VAR = "AGENT_HOOK_APP_LOG_PATH"
 APPLICATION_LOG_MAX_BYTES_ENV_VAR = "AGENT_HOOK_APP_LOG_MAX_BYTES"
 APPLICATION_LOG_BACKUP_COUNT_ENV_VAR = "AGENT_HOOK_APP_LOG_BACKUP_COUNT"
+PROVIDER_ENV_VAR = "AGENT_HOOK_PROVIDER"
 DISABLE_OSASCRIPT_ENV_VARS = (
     "AGENT_HOOK_DISABLE_OSASCRIPT",
     "CLAUDE_HOOK_DISABLE_OSASCRIPT",
@@ -81,6 +84,7 @@ class RuntimeConfig:
 
     project_root: Path
     log_directory: Path
+    provider: HookProvider | None
     skip_osascript: bool
     application_logging: ApplicationLoggingConfig
     audit_logging: AuditLoggingConfig
@@ -177,10 +181,16 @@ def load_runtime_config(env: Mapping[str, str] | None = None) -> RuntimeConfig:
         APPLICATION_LOG_FORMAT_ENV_VAR,
         default=DEFAULT_APPLICATION_LOG_FORMAT,
     )
+    provider = read_provider_env(
+        environment,
+        PROVIDER_ENV_VAR,
+        warnings=warnings,
+    )
 
     return RuntimeConfig(
         project_root=project_root,
         log_directory=log_directory,
+        provider=provider,
         skip_osascript=skip_osascript,
         application_logging=ApplicationLoggingConfig(
             file=application_file,
@@ -194,6 +204,24 @@ def load_runtime_config(env: Mapping[str, str] | None = None) -> RuntimeConfig:
         ),
         warnings=tuple(warnings),
     )
+
+
+def read_provider_env(
+    env: Mapping[str, str],
+    env_var: str,
+    *,
+    warnings: list[str],
+) -> HookProvider | None:
+    """Parse the configured hook provider."""
+    raw_value = env.get(env_var)
+    if raw_value is None or raw_value == "":
+        return None
+
+    try:
+        return HookProvider(raw_value)
+    except ValueError:
+        warnings.append(f"Ignored invalid provider {raw_value!r} from {env_var}.")
+        return None
 
 
 def load_file_logging_config(

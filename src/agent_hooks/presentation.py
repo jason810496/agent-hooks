@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-from agent_hooks.enums import DialogButton, HookEventName, NotificationSound, NotificationType
+from agent_hooks.enums import (
+    DialogButton,
+    HookEventName,
+    HookProvider,
+    NotificationSound,
+    NotificationType,
+)
 from agent_hooks.models import DialogSpec, HookPayload, NotificationSpec, PermissionRule
 from agent_hooks.text import compact_text, first_non_empty_line, humanize
 
@@ -16,9 +22,13 @@ def build_notification(payload: HookPayload) -> NotificationSpec | None:
     """
     if payload.event_name == HookEventName.NOTIFICATION:
         title = compact_text(
-            payload.title or humanize(payload.raw_notification_type) or "Claude Code"
+            payload.title
+            or humanize(payload.raw_notification_type)
+            or provider_display_name(payload.provider)
         )
-        message = compact_text(payload.message or "Claude Code sent a notification.")
+        message = compact_text(
+            payload.message or f"{provider_display_name(payload.provider)} sent a notification."
+        )
         return NotificationSpec(
             title=title,
             message=message,
@@ -27,22 +37,22 @@ def build_notification(payload: HookPayload) -> NotificationSpec | None:
 
     if payload.event_name == HookEventName.STOP:
         return NotificationSpec(
-            title="Claude finished",
+            title=f"{provider_short_name(payload.provider)} finished",
             message=compact_text(
                 first_non_empty_line(payload.last_assistant_message)
-                or "Claude finished responding."
+                or f"{provider_short_name(payload.provider)} finished responding."
             ),
             sound=NotificationSound.GLASS,
         )
 
     if payload.event_name == HookEventName.STOP_FAILURE:
         return NotificationSpec(
-            title="Claude error",
+            title=f"{provider_short_name(payload.provider)} error",
             message=compact_text(
                 first_non_empty_line(payload.error_details)
                 or first_non_empty_line(payload.last_assistant_message)
                 or first_non_empty_line(payload.error)
-                or "Claude hit an API error."
+                or f"{provider_short_name(payload.provider)} hit an API error."
             ),
             subtitle=compact_text(payload.error),
             sound=NotificationSound.BASSO,
@@ -67,13 +77,9 @@ def build_permission_dialog(payload: HookPayload) -> DialogSpec:
         )
 
     return DialogSpec(
-        title="Claude Code — Permission Request",
+        title=f"{provider_display_name(payload.provider)} — Permission Request",
         message=message,
-        buttons=(
-            DialogButton.DENY,
-            DialogButton.ALLOW_ONCE,
-            DialogButton.ALWAYS_ALLOW,
-        ),
+        buttons=permission_dialog_buttons(payload.provider),
         default_button=DialogButton.ALLOW_ONCE,
     )
 
@@ -136,3 +142,28 @@ def first_permission_rule(payload: HookPayload) -> PermissionRule | None:
     if not first_suggestion.rules:
         return None
     return first_suggestion.rules[0]
+
+
+def provider_display_name(provider: HookProvider) -> str:
+    """Return the user-facing provider label."""
+    if provider == HookProvider.CODEX:
+        return "Codex"
+    return "Claude Code"
+
+
+def provider_short_name(provider: HookProvider) -> str:
+    """Return the short provider label used in notifications."""
+    if provider == HookProvider.CODEX:
+        return "Codex"
+    return "Claude"
+
+
+def permission_dialog_buttons(provider: HookProvider) -> tuple[DialogButton, ...]:
+    """Return the supported permission dialog buttons for one provider."""
+    if provider == HookProvider.CODEX:
+        return (DialogButton.DENY, DialogButton.ALLOW_ONCE)
+    return (
+        DialogButton.DENY,
+        DialogButton.ALLOW_ONCE,
+        DialogButton.ALWAYS_ALLOW,
+    )

@@ -5,11 +5,21 @@ from __future__ import annotations
 from enum import Enum
 
 
+class HookProvider(str, Enum):
+    """Represent the supported hook protocol providers."""
+
+    CLAUDE_CODE = "claude-code"
+    CODEX = "codex"
+
+
 class HookEventName(str, Enum):
-    """Represent supported Claude hook events."""
+    """Represent normalized hook events across supported providers."""
 
     NOTIFICATION = "Notification"
     PERMISSION_REQUEST = "PermissionRequest"
+    SESSION_START = "SessionStart"
+    USER_PROMPT_SUBMIT = "UserPromptSubmit"
+    POST_TOOL_USE = "PostToolUse"
     STOP = "Stop"
     STOP_FAILURE = "StopFailure"
     UNKNOWN = "Unknown"
@@ -43,10 +53,17 @@ class DialogButton(str, Enum):
 
 
 class PermissionBehavior(str, Enum):
-    """Represent Claude permission decisions."""
+    """Represent normalized permission decisions."""
 
     ALLOW = "allow"
     DENY = "deny"
+    ASK = "ask"
+
+
+class HookControlDecision(str, Enum):
+    """Represent normalized non-permission control decisions."""
+
+    BLOCK = "block"
 
 
 class PermissionDestination(str, Enum):
