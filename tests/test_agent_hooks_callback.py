@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+import json
+import logging
 from io import StringIO
 from pathlib import Path
 
 from agent_hooks.cli import run_callback
-from agent_hooks.config import RuntimeConfig
+from agent_hooks.config import (
+    ApplicationLoggingConfig,
+    AuditLoggingConfig,
+    FileLoggingConfig,
+    RuntimeConfig,
+    load_runtime_config,
+)
 from agent_hooks.enums import AppleScriptInvocation, DialogButton, TransportStatus
 from agent_hooks.models import AppleScriptResult, DialogResult
 from agent_hooks.parsing import build_hook_payload, read_hook_input
@@ -125,8 +133,39 @@ class TestProcessHook:
         assert result.response.as_payload() == {"suppressOutput": True}
 
 
+class TestRuntimeConfig:
+    def test_load_runtime_config_reads_environment_overrides(self, tmp_path: Path) -> None:
+        env = {
+            "AGENT_HOOK_PROJECT_ROOT": str(tmp_path),
+            "AGENT_HOOK_LOG_DIR": "var/logs",
+            "AGENT_HOOK_DISABLE_OSASCRIPT": "true",
+            "AGENT_HOOK_APP_LOG_PATH": "runtime/app.log",
+            "AGENT_HOOK_APP_LOG_FORMAT": "%(levelname)s %(message)s",
+            "AGENT_HOOK_APP_LOG_LEVEL": "debug",
+            "AGENT_HOOK_LOG_MAX_BYTES": "2048",
+            "AGENT_HOOK_LOG_BACKUP_COUNT": "6",
+            "AGENT_HOOK_RESPONSE_AUDIT_LOG_PATH": "runtime/response.log",
+        }
+
+        config = load_runtime_config(env)
+
+        assert config.project_root == tmp_path
+        assert config.log_directory == tmp_path / "var" / "logs"
+        assert config.skip_osascript is True
+        assert config.application_logging.file.path == tmp_path / "runtime" / "app.log"
+        assert config.application_logging.level == logging.DEBUG
+        assert config.application_logging.level_name == "DEBUG"
+        assert config.application_logging.format_string == "%(levelname)s %(message)s"
+        assert config.audit_logging.input_file.max_bytes == 2048
+        assert config.audit_logging.response_file.backup_count == 6
+        assert config.audit_logging.response_file.path == tmp_path / "runtime" / "response.log"
+
+
 class TestRunCallback:
-    def test_run_callback_emits_structured_response(self, tmp_path: Path) -> None:
+    def test_run_callback_emits_structured_response_and_writes_logs(
+        self,
+        tmp_path: Path,
+    ) -> None:
         stdin = StringIO(
             """
             {
@@ -139,9 +178,30 @@ class TestRunCallback:
         stdout = StringIO()
         runtime_config = RuntimeConfig(
             project_root=tmp_path,
-            log_path=tmp_path / "logs" / "hooks.log",
-            raw_log_path=tmp_path / "logs" / "hooks.raw.log",
+            log_directory=tmp_path / "logs",
             skip_osascript=True,
+            application_logging=ApplicationLoggingConfig(
+                file=FileLoggingConfig(
+                    path=tmp_path / "logs" / "hooks.log",
+                    max_bytes=1024 * 1024,
+                    backup_count=1,
+                ),
+                level=logging.DEBUG,
+                level_name="DEBUG",
+                format_string="%(levelname)s %(message)s",
+            ),
+            audit_logging=AuditLoggingConfig(
+                input_file=FileLoggingConfig(
+                    path=tmp_path / "logs" / "hooks.raw.log",
+                    max_bytes=1024 * 1024,
+                    backup_count=1,
+                ),
+                response_file=FileLoggingConfig(
+                    path=tmp_path / "logs" / "hooks.response.log",
+                    max_bytes=1024 * 1024,
+                    backup_count=1,
+                ),
+            ),
         )
 
         exit_code = run_callback(
@@ -156,3 +216,18 @@ class TestRunCallback:
             stdout.getvalue()
             == '{"suppressOutput":true,"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}\n'
         )
+        input_audit_record = json.loads(runtime_config.raw_log_path.read_text(encoding="utf-8"))
+        assert input_audit_record["hook_event_name"] == "PermissionRequest"
+        assert input_audit_record["raw_input"].strip().startswith("{")
+
+        response_audit_record = json.loads(
+            runtime_config.response_log_path.read_text(encoding="utf-8")
+        )
+        assert response_audit_record["hook_event_name"] == "PermissionRequest"
+        assert response_audit_record["hook_response"] == stdout.getvalue()
+
+        app_log = runtime_config.log_path.read_text(encoding="utf-8")
+        assert app_log.startswith("INFO ")
+        assert '"hook_event_name": "PermissionRequest"' in app_log
+        expected_response_bytes = len(stdout.getvalue().encode("utf-8"))
+        assert f'"response_bytes": {expected_response_bytes}' in app_log

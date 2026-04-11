@@ -7,11 +7,21 @@ import json
 import sys
 from collections.abc import Sequence
 from datetime import datetime, timezone
+from io import StringIO
 from typing import IO
 
 from agent_hooks.config import RuntimeConfig, load_runtime_config
-from agent_hooks.logging_utils import append_log, append_raw_input_log
-from agent_hooks.models import HookLogRecord, HookResponse
+from agent_hooks.logging_utils import (
+    append_application_log,
+    append_input_audit_log,
+    append_response_audit_log,
+)
+from agent_hooks.models import (
+    ApplicationLogRecord,
+    HookResponse,
+    InputAuditLogRecord,
+    ResponseAuditLogRecord,
+)
 from agent_hooks.parsing import read_hook_input
 from agent_hooks.processor import process_hook
 from agent_hooks.transport import AppleScriptTransport, DisplayTransport
@@ -42,8 +52,20 @@ def emit_hook_response(response: HookResponse | None = None, stdout: IO[str] | N
     :type stdout: IO[str] | None
     """
     stream = stdout if stdout is not None else sys.stdout
-    json.dump((response or HookResponse()).as_payload(), stream, separators=(",", ":"))
-    stream.write("\n")
+    stream.write(render_hook_response(response))
+
+
+def render_hook_response(response: HookResponse | None = None) -> str:
+    """Render the structured response JSON expected by Claude.
+
+    :param response: Hook response to render.
+    :type response: HookResponse | None
+    :return: Serialized response text, including the trailing newline.
+    """
+    buffer = StringIO()
+    json.dump((response or HookResponse()).as_payload(), buffer, separators=(",", ":"))
+    buffer.write("\n")
+    return buffer.getvalue()
 
 
 def run_callback(
@@ -70,26 +92,47 @@ def run_callback(
     display_transport = transport or AppleScriptTransport(skip_osascript=config.skip_osascript)
     result = process_hook(input_data, display_transport)
     timestamp = datetime.now(timezone.utc).isoformat()
+    response_text = render_hook_response(result.response)
 
-    append_raw_input_log(
-        timestamp=timestamp,
-        payload=input_data.payload,
-        raw_input=input_data.raw_input,
-        path=config.raw_log_path,
-    )
-    append_log(
-        HookLogRecord(
+    append_input_audit_log(
+        InputAuditLogRecord(
             timestamp=timestamp,
-            log_path=config.log_path,
-            raw_log_path=config.raw_log_path,
-            raw_input=input_data.raw_input,
             hook_event_name=input_data.payload.raw_event_name,
-            payload=input_data.payload.raw,
+            session_id=input_data.payload.session_id,
+            cwd=input_data.payload.cwd,
+            raw_input=input_data.raw_input,
+        ),
+        config.audit_logging.input_file,
+    )
+    append_response_audit_log(
+        ResponseAuditLogRecord(
+            timestamp=timestamp,
+            hook_event_name=input_data.payload.raw_event_name,
+            session_id=input_data.payload.session_id,
+            cwd=input_data.payload.cwd,
+            hook_response=response_text,
+        ),
+        config.audit_logging.response_file,
+    )
+    append_application_log(
+        ApplicationLogRecord(
+            timestamp=timestamp,
+            hook_event_name=input_data.payload.raw_event_name,
+            session_id=input_data.payload.session_id,
+            cwd=input_data.payload.cwd,
+            notification_type=input_data.payload.raw_notification_type,
+            tool_name=input_data.payload.tool_name,
+            parse_error=input_data.parse_error,
             display=result.display,
             osascript=result.transport_result,
-            hook_response=result.response.as_payload(),
+            suppress_output=result.response.suppress_output,
+            has_hook_specific_output=result.response.hook_specific_output is not None,
+            raw_input_bytes=len(input_data.raw_input.encode("utf-8")),
+            response_bytes=len(response_text.encode("utf-8")),
+            configuration_warnings=config.warnings,
             error=result.error,
-        )
+        ),
+        config.application_logging,
     )
     emit_hook_response(result.response, stdout=stdout)
     return 0
