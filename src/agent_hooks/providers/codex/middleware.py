@@ -1,4 +1,4 @@
-"""Evaluate Codex execpolicy rules for built-in permission handling."""
+"""Codex-specific middleware."""
 
 from __future__ import annotations
 
@@ -10,13 +10,28 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from agent_hooks.enums import HookEventName, HookProvider
-from agent_hooks.models import HookPayload
+from agent_hooks.middleware import HookMiddlewareContext, NextMiddleware
+from agent_hooks.models import HookPayload, HookProcessingResult, HookResponse
 
 CODEX_EXECPOLICY_MODEL_ENV_VAR = "AGENT_HOOK_CODEX_EXECPOLICY_MODEL"
 CODEX_EXECPOLICY_RULES_ENV_VAR = "AGENT_HOOK_CODEX_EXECPOLICY_RULES"
 
 DEFAULT_CODEX_EXECPOLICY_MODEL = "5.4-mini"
 DEFAULT_CODEX_EXECPOLICY_RULES = Path("~/.codex/rules/default.rules")
+
+
+def codex_execpolicy_middleware(
+    context: HookMiddlewareContext,
+    call_next: NextMiddleware,
+) -> HookProcessingResult:
+    """Auto-allow Codex Bash commands already approved by Codex execpolicy."""
+    if should_auto_allow_codex_permission_request(context.payload):
+        return HookProcessingResult(
+            display=None,
+            transport_result=None,
+            response=HookResponse(),
+        )
+    return call_next(context)
 
 
 def should_auto_allow_codex_permission_request(

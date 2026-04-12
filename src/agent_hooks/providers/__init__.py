@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from agent_hooks.enums import HookProvider
+from agent_hooks.middleware import HookMiddleware
 from agent_hooks.models import HookPayload, HookResponse, HookResponseProtocol, JsonObject
-from agent_hooks.providers import claude_code, codex
 from agent_hooks.providers.common import coerce_text
+from agent_hooks.providers.registry import get_provider_adapter
 
 DEFAULT_PROVIDER = HookProvider.CLAUDE_CODE
 CLAUDE_ONLY_EVENTS = frozenset(
@@ -65,10 +66,8 @@ def infer_provider(raw_payload: JsonObject) -> HookProvider:
 
 def build_hook_payload(provider: HookProvider | str | None, raw_payload: JsonObject) -> HookPayload:
     """Build the normalized payload for one provider."""
-    resolved_provider = coerce_provider(provider)
-    if resolved_provider == HookProvider.CODEX:
-        return codex.build_hook_payload(raw_payload)
-    return claude_code.build_hook_payload(raw_payload)
+    adapter = get_provider_adapter(coerce_provider(provider))
+    return adapter.build_hook_payload(raw_payload)
 
 
 def render_response_payload(
@@ -78,8 +77,12 @@ def render_response_payload(
     input_payload: HookPayload | None = None,
 ) -> JsonObject:
     """Render a provider-neutral response into the provider wire format."""
-    resolved_provider = coerce_provider(provider)
     raw_payload = (response or HookResponse()).as_payload()
-    if resolved_provider == HookProvider.CODEX:
-        return codex.render_response_payload(raw_payload, input_payload=input_payload)
-    return claude_code.render_response_payload(raw_payload, input_payload=input_payload)
+    adapter = get_provider_adapter(coerce_provider(provider))
+    return adapter.render_response_payload(raw_payload, input_payload=input_payload)
+
+
+def get_provider_middlewares(provider: HookProvider | str | None) -> tuple[HookMiddleware, ...]:
+    """Return the provider middlewares configured for one provider."""
+    adapter = get_provider_adapter(coerce_provider(provider))
+    return adapter.middlewares

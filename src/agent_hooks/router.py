@@ -9,6 +9,7 @@ from typing import IO, TypeAlias, TypeVar, get_type_hints
 
 from agent_hooks.config import RuntimeConfig
 from agent_hooks.enums import HookEventName, HookProvider
+from agent_hooks.middleware import HookMiddleware, dispatch_with_middlewares
 from agent_hooks.models import (
     HookInput,
     HookPayload,
@@ -17,12 +18,14 @@ from agent_hooks.models import (
     HookResponseProtocol,
 )
 from agent_hooks.processor import process_hook
+from agent_hooks.providers import get_provider_middlewares
 from agent_hooks.transport import DisplayTransport
 
 EventModelT = TypeVar("EventModelT", bound=HookPayload)
 HandlerResult: TypeAlias = HookProcessingResult | HookResponseProtocol | None
 RouteHandler: TypeAlias = Callable[..., HandlerResult]
 RouteDecorator: TypeAlias = Callable[[RouteHandler], RouteHandler]
+MiddlewareDecorator: TypeAlias = Callable[[HookMiddleware], HookMiddleware]
 
 
 @dataclass(frozen=True)
@@ -134,6 +137,7 @@ class AgentHook:
         self._fallback_to_default_processor = fallback_to_default_processor
         self._provider = HookProvider(provider) if isinstance(provider, str) else provider
         self._routes: dict[HookEventName, _RouteDefinition] = {}
+        self._middlewares: tuple[HookMiddleware, ...] = ()
 
     @property
     def provider(self) -> HookProvider | None:
@@ -157,6 +161,15 @@ class AgentHook:
     def pre_tool_use(self) -> RouteDecorator[PermissionRequestEvent]:
         """Register a handler for Codex ``PreToolUse`` events."""
         return self.permission()
+
+    def middleware(self) -> MiddlewareDecorator:
+        """Register one middleware for this hook router."""
+
+        def decorator(middleware: HookMiddleware) -> HookMiddleware:
+            self._middlewares = (*self._middlewares, middleware)
+            return middleware
+
+        return decorator
 
     def session_start(self) -> RouteDecorator[SessionStartEvent]:
         """Register a handler for ``SessionStart`` events."""
@@ -196,6 +209,20 @@ class AgentHook:
         if input_data.parse_error is not None:
             return _empty_processing_result(error=input_data.parse_error)
 
+        middlewares = (*get_provider_middlewares(input_data.payload.provider), *self._middlewares)
+        return dispatch_with_middlewares(
+            input_data,
+            transport,
+            middlewares=middlewares,
+            final_handler=self._dispatch_without_middlewares,
+        )
+
+    def _dispatch_without_middlewares(
+        self,
+        input_data: HookInput,
+        transport: DisplayTransport,
+    ) -> HookProcessingResult:
+        """Dispatch a parsed payload after middleware has already run."""
         route = self._routes.get(input_data.payload.event_name)
         if route is None:
             if self._fallback_to_default_processor:

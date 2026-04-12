@@ -25,10 +25,6 @@ from agent_hooks.enums import (
     HookProvider,
     TransportStatus,
 )
-from agent_hooks.execpolicy import (
-    CODEX_EXECPOLICY_RULES_ENV_VAR,
-    run_codex_execpolicy_check,
-)
 from agent_hooks.models import (
     AppleScriptDialogResponse,
     AppleScriptResult,
@@ -42,6 +38,10 @@ from agent_hooks.processor import (
     build_permission_response,
     process_hook,
     process_permission_request,
+)
+from agent_hooks.providers.codex.middleware import (
+    CODEX_EXECPOLICY_RULES_ENV_VAR,
+    run_codex_execpolicy_check,
 )
 from agent_hooks.runner import (
     discover_agent_hook_name,
@@ -446,28 +446,32 @@ class TestProcessHook:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        payload = build_hook_payload(
-            {
-                "hook_event_name": "PreToolUse",
-                "cwd": "/tmp/project",
-                "model": "gpt-5.4",
-                "permission_mode": "default",
-                "session_id": "session-1",
-                "tool_input": {"command": "git status"},
-                "tool_name": "Bash",
-                "tool_use_id": "tool-1",
-                "transcript_path": None,
-                "turn_id": "turn-1",
-            },
+        input_data = read_hook_input(
+            StringIO(
+                """
+                {
+                  "hook_event_name": "PreToolUse",
+                  "cwd": "/tmp/project",
+                  "model": "gpt-5.4",
+                  "permission_mode": "default",
+                  "session_id": "session-1",
+                  "tool_input": {"command": "git status"},
+                  "tool_name": "Bash",
+                  "tool_use_id": "tool-1",
+                  "transcript_path": null,
+                  "turn_id": "turn-1"
+                }
+                """
+            ),
             provider=HookProvider.CODEX,
         )
         transport = FakeTransport()
         monkeypatch.setattr(
-            "agent_hooks.processor.should_auto_allow_codex_permission_request",
+            "agent_hooks.providers.codex.middleware.should_auto_allow_codex_permission_request",
             lambda _payload: True,
         )
 
-        result = process_permission_request(payload, transport)
+        result = app.dispatch(input_data, transport)
 
         assert transport.dialog_calls == 0
         assert result.response.as_payload() == {"suppressOutput": True}
@@ -507,7 +511,7 @@ class TestCodexExecPolicy:
 
             return FakeCompletedProcess()
 
-        monkeypatch.setattr("agent_hooks.execpolicy.subprocess.run", fake_run)
+        monkeypatch.setattr("agent_hooks.providers.codex.middleware.subprocess.run", fake_run)
 
         decision = run_codex_execpolicy_check(
             ["prek", "run", "ruff"],
@@ -558,7 +562,7 @@ class TestCodexExecPolicy:
 
             return FakeCompletedProcess()
 
-        monkeypatch.setattr("agent_hooks.execpolicy.subprocess.run", fake_run)
+        monkeypatch.setattr("agent_hooks.providers.codex.middleware.subprocess.run", fake_run)
 
         decision = run_codex_execpolicy_check(
             ["git", "status"],
@@ -569,6 +573,36 @@ class TestCodexExecPolicy:
 
 
 class TestAgentHook:
+    def test_router_middleware_wraps_dispatch(self) -> None:
+        hook = AgentHook(fallback_to_default_processor=False)
+        seen_tools: list[str] = []
+
+        @hook.middleware()
+        def capture_tool_name(context, call_next):
+            seen_tools.append(context.payload.tool_name)
+            return call_next(context)
+
+        @hook.permission()
+        def permission_callback() -> HookResponse:
+            return HookResponse(suppress_output=False)
+
+        input_data = read_hook_input(
+            StringIO(
+                """
+                {
+                  "hook_event_name": "PermissionRequest",
+                  "tool_name": "Bash",
+                  "tool_input": {"command": "git status"}
+                }
+                """
+            )
+        )
+
+        result = hook.dispatch(input_data, FakeTransport())
+
+        assert seen_tools == ["Bash"]
+        assert result.response.as_payload() == {"suppressOutput": False}
+
     def test_permission_decorator_accepts_custom_response_model(self) -> None:
         hook = AgentHook()
 
@@ -964,7 +998,7 @@ class TestRunCallback:
         stdout = StringIO()
         runtime_config = build_runtime_config(tmp_path, provider=HookProvider.CODEX)
         monkeypatch.setattr(
-            "agent_hooks.processor.should_auto_allow_codex_permission_request",
+            "agent_hooks.providers.codex.middleware.should_auto_allow_codex_permission_request",
             lambda _payload: False,
         )
 
@@ -1001,7 +1035,7 @@ class TestRunCallback:
         )
         stdout = StringIO()
         monkeypatch.setattr(
-            "agent_hooks.processor.should_auto_allow_codex_permission_request",
+            "agent_hooks.providers.codex.middleware.should_auto_allow_codex_permission_request",
             lambda _payload: False,
         )
 
@@ -1049,7 +1083,7 @@ class TestRunCallback:
             )
         )
         monkeypatch.setattr(
-            "agent_hooks.processor.should_auto_allow_codex_permission_request",
+            "agent_hooks.providers.codex.middleware.should_auto_allow_codex_permission_request",
             lambda _payload: False,
         )
 
@@ -1099,6 +1133,45 @@ class TestRunCallback:
             '{"suppressOutput":true,"hookSpecificOutput":{"hookEventName":"PermissionRequest",'
             '"decision":{"behavior":"allow"}}}\n'
         )
+
+    def test_run_callback_default_processor_uses_provider_middleware(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        stdin = StringIO(
+            """
+            {
+              "hook_event_name": "PreToolUse",
+              "cwd": "/tmp/project",
+              "model": "gpt-5.4",
+              "permission_mode": "default",
+              "session_id": "session-1",
+              "tool_input": {"command": "git status"},
+              "tool_name": "Bash",
+              "tool_use_id": "tool-1",
+              "transcript_path": null,
+              "turn_id": "turn-1"
+            }
+            """
+        )
+        stdout = StringIO()
+        transport = FakeTransport()
+        monkeypatch.setattr(
+            "agent_hooks.providers.codex.middleware.should_auto_allow_codex_permission_request",
+            lambda _payload: True,
+        )
+
+        exit_code = run_callback(
+            stdin=stdin,
+            stdout=stdout,
+            runtime_config=build_runtime_config(tmp_path, provider=HookProvider.CODEX),
+            transport=transport,
+        )
+
+        assert exit_code == 0
+        assert transport.dialog_calls == 0
+        assert json.loads(stdout.getvalue()) == {}
 
     def test_agent_hook_run_callback_uses_registered_handler(
         self,
@@ -1165,7 +1238,7 @@ class TestRunCallback:
         stdout = StringIO()
         runtime_config = build_runtime_config(tmp_path)
         monkeypatch.setattr(
-            "agent_hooks.processor.should_auto_allow_codex_permission_request",
+            "agent_hooks.providers.codex.middleware.should_auto_allow_codex_permission_request",
             lambda _payload: False,
         )
 

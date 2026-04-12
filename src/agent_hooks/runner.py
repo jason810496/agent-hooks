@@ -21,6 +21,7 @@ from agent_hooks.logging_utils import (
     append_input_audit_log,
     append_response_audit_log,
 )
+from agent_hooks.middleware import dispatch_with_middlewares
 from agent_hooks.models import (
     ApplicationLogRecord,
     HookInput,
@@ -33,7 +34,7 @@ from agent_hooks.models import (
 )
 from agent_hooks.parsing import read_hook_input
 from agent_hooks.processor import process_hook
-from agent_hooks.providers import coerce_provider, render_response_payload
+from agent_hooks.providers import coerce_provider, get_provider_middlewares, render_response_payload
 from agent_hooks.transport import AppleScriptTransport, DisplayTransport
 
 
@@ -540,17 +541,37 @@ def dispatch_callback(
     :raises TypeError: If the callback target does not expose a supported interface.
     """
     if hook is None:
-        return process_hook(input_data, transport)
+        return dispatch_with_middlewares(
+            input_data,
+            transport,
+            middlewares=get_provider_middlewares(input_data.payload.provider),
+            final_handler=process_hook,
+        )
 
     if isinstance(hook, str):
         hook = load_callback_target(hook)
 
+    from agent_hooks.router import AgentHook
+
+    if isinstance(hook, AgentHook):
+        return hook.dispatch(input_data, transport)
+
     dispatcher = getattr(hook, "dispatch", None)
     if callable(dispatcher):
-        return dispatcher(input_data, transport)
+        return dispatch_with_middlewares(
+            input_data,
+            transport,
+            middlewares=get_provider_middlewares(input_data.payload.provider),
+            final_handler=cast(CallbackHandler, dispatcher),
+        )
 
     if callable(hook):
-        return cast(CallbackHandler, hook)(input_data, transport)
+        return dispatch_with_middlewares(
+            input_data,
+            transport,
+            middlewares=get_provider_middlewares(input_data.payload.provider),
+            final_handler=cast(CallbackHandler, hook),
+        )
 
     raise TypeError(
         "Callback target must be a dispatcher instance, direct handler, or import string."

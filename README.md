@@ -11,9 +11,10 @@
 Framework code lives at the first package level under `agent_hooks/`.
 
 - `agent_hooks/router.py`: FastAPI-like decorator router such as `@app.permission()`.
+- `agent_hooks/middleware.py`: Middleware pipeline used by router dispatch and provider-specific behavior.
 - `agent_hooks/runner.py`: Generic callback runtime for loading and executing a router or handler.
 - `agent_hooks/models.py`: Core response and payload models.
-- `agent_hooks/providers/`: Provider-specific schema adapters for `claude-code` and `codex`.
+- `agent_hooks/providers/`: Provider-specific adapters and optional middlewares, organized into `claude_code/` and `codex/` subpackages.
 - `agent_hooks/processor.py`: Default processing helpers such as `build_permission_response()`.
 
 The built-in CLI app lives under `agent_hooks/cli_app/`.
