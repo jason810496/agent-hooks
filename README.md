@@ -45,6 +45,8 @@ AGENT_HOOK_PROVIDER=claude-code agent-hooks callback
 ```
 
 The built-in CLI app is intended to work out of the box on macOS by showing AppleScript dialogs for permission requests.
+For Codex `PreToolUse` Bash commands, it first runs `codex execpolicy check -c model="5.4-mini" --rules ~/.codex/rules/default.rules -- <command ...>`.
+If the top-level `decision` is `allow`, the hook auto-approves and skips the dialog. You can override the binary, model, or rules path with `AGENT_HOOK_CODEX_EXECPOLICY_BINARY`, `AGENT_HOOK_CODEX_EXECPOLICY_MODEL`, and `AGENT_HOOK_CODEX_EXECPOLICY_RULES`.
 
 To run your own hook app from the CLI, you can either point at a Python file:
 

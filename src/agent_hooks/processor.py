@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from agent_hooks.enums import DialogButton, HookEventName, TransportStatus
+from agent_hooks.execpolicy import should_auto_allow_codex_permission_request
 from agent_hooks.models import (
     AppleScriptDialogResponse,
     AppleScriptResult,
@@ -58,6 +59,14 @@ def process_permission_request(
     :type current_error: str | None
     :return: Processing result for logging and emission.
     """
+    if should_auto_allow_codex_permission_request(payload):
+        return HookProcessingResult(
+            display=None,
+            transport_result=None,
+            response=DEFAULT_HOOK_RESPONSE,
+            error=current_error,
+        )
+
     dialog = build_permission_dialog(payload)
     dialog_result = transport.show_dialog(dialog)
     response = (

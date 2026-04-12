@@ -25,6 +25,10 @@ from agent_hooks.enums import (
     HookProvider,
     TransportStatus,
 )
+from agent_hooks.execpolicy import (
+    CODEX_EXECPOLICY_RULES_ENV_VAR,
+    run_codex_execpolicy_check,
+)
 from agent_hooks.models import (
     AppleScriptDialogResponse,
     AppleScriptResult,
@@ -438,6 +442,131 @@ class TestProcessHook:
         assert result.error == "notification failed"
         assert result.response.as_payload() == {"suppressOutput": True}
 
+    def test_codex_permission_request_skips_dialog_when_execpolicy_allows(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        payload = build_hook_payload(
+            {
+                "hook_event_name": "PreToolUse",
+                "cwd": "/tmp/project",
+                "model": "gpt-5.4",
+                "permission_mode": "default",
+                "session_id": "session-1",
+                "tool_input": {"command": "git status"},
+                "tool_name": "Bash",
+                "tool_use_id": "tool-1",
+                "transcript_path": None,
+                "turn_id": "turn-1",
+            },
+            provider=HookProvider.CODEX,
+        )
+        transport = FakeTransport()
+        monkeypatch.setattr(
+            "agent_hooks.processor.should_auto_allow_codex_permission_request",
+            lambda _payload: True,
+        )
+
+        result = process_permission_request(payload, transport)
+
+        assert transport.dialog_calls == 0
+        assert result.response.as_payload() == {"suppressOutput": True}
+
+
+class TestCodexExecPolicy:
+    def test_run_codex_execpolicy_check_returns_allow_and_uses_expected_command(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        captured_command: list[str] | None = None
+        captured_cwd: str | None = None
+        rules_path = tmp_path / "default.rules"
+        rules_path.write_text('prefix_rule("git", "status") => allow', encoding="utf-8")
+
+        def fake_run(
+            command: list[str],
+            *,
+            capture_output: bool,
+            text: bool,
+            check: bool,
+            cwd: str | None,
+        ) -> object:
+            nonlocal captured_command, captured_cwd
+            captured_command = command
+            captured_cwd = cwd
+            assert capture_output is True
+            assert text is True
+            assert check is False
+
+            class FakeCompletedProcess:
+                returncode = 0
+                stdout = (
+                    '{"matchedRules":[{"prefixRuleMatch":{"decision":"allow"}}],"decision":"allow"}'
+                )
+
+            return FakeCompletedProcess()
+
+        monkeypatch.setattr("agent_hooks.execpolicy.subprocess.run", fake_run)
+
+        decision = run_codex_execpolicy_check(
+            ["prek", "run", "ruff"],
+            cwd="/tmp/project",
+            env={CODEX_EXECPOLICY_RULES_ENV_VAR: str(rules_path)},
+        )
+
+        assert decision == "allow"
+        assert captured_command == [
+            "codex",
+            "execpolicy",
+            "check",
+            "-c",
+            'model="5.4-mini"',
+            "--rules",
+            str(rules_path),
+            "--",
+            "prek",
+            "run",
+            "ruff",
+        ]
+        assert captured_cwd == "/tmp/project"
+
+    def test_run_codex_execpolicy_check_returns_empty_on_invalid_json(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        rules_path = tmp_path / "default.rules"
+        rules_path.write_text('prefix_rule("git", "status") => allow', encoding="utf-8")
+
+        def fake_run(
+            _command: list[str],
+            *,
+            capture_output: bool,
+            text: bool,
+            check: bool,
+            cwd: str | None,
+        ) -> object:
+            assert capture_output is True
+            assert text is True
+            assert check is False
+            assert cwd is None
+
+            class FakeCompletedProcess:
+                returncode = 0
+                stdout = "not-json"
+
+            return FakeCompletedProcess()
+
+        monkeypatch.setattr("agent_hooks.execpolicy.subprocess.run", fake_run)
+
+        decision = run_codex_execpolicy_check(
+            ["git", "status"],
+            env={CODEX_EXECPOLICY_RULES_ENV_VAR: str(rules_path)},
+        )
+
+        assert decision == ""
+
 
 class TestAgentHook:
     def test_permission_decorator_accepts_custom_response_model(self) -> None:
@@ -811,39 +940,10 @@ class TestRunCallback:
             '"decision":{"behavior":"allow"}}}\n'
         )
 
-    def test_run_callback_supports_codex_provider(self, tmp_path: Path) -> None:
-        stdin = StringIO(
-            """
-            {
-              "hook_event_name": "PreToolUse",
-              "cwd": "/tmp/project",
-              "model": "gpt-5.4",
-              "permission_mode": "default",
-              "session_id": "session-1",
-              "tool_input": {"command": "git status"},
-              "tool_name": "Bash",
-              "tool_use_id": "tool-1",
-              "transcript_path": null,
-              "turn_id": "turn-1"
-            }
-            """
-        )
-        stdout = StringIO()
-        runtime_config = build_runtime_config(tmp_path, provider=HookProvider.CODEX)
-
-        exit_code = run_callback(
-            stdin=stdin,
-            stdout=stdout,
-            runtime_config=runtime_config,
-            transport=FakeTransport(),
-        )
-
-        assert exit_code == 0
-        assert json.loads(stdout.getvalue()) == {}
-
-    def test_run_callback_auto_detects_codex_provider_for_pre_tool_use(
+    def test_run_callback_supports_codex_provider(
         self,
         tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         stdin = StringIO(
             """
@@ -862,6 +962,48 @@ class TestRunCallback:
             """
         )
         stdout = StringIO()
+        runtime_config = build_runtime_config(tmp_path, provider=HookProvider.CODEX)
+        monkeypatch.setattr(
+            "agent_hooks.processor.should_auto_allow_codex_permission_request",
+            lambda _payload: False,
+        )
+
+        exit_code = run_callback(
+            stdin=stdin,
+            stdout=stdout,
+            runtime_config=runtime_config,
+            transport=FakeTransport(),
+        )
+
+        assert exit_code == 0
+        assert json.loads(stdout.getvalue()) == {}
+
+    def test_run_callback_auto_detects_codex_provider_for_pre_tool_use(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        stdin = StringIO(
+            """
+            {
+              "hook_event_name": "PreToolUse",
+              "cwd": "/tmp/project",
+              "model": "gpt-5.4",
+              "permission_mode": "default",
+              "session_id": "session-1",
+              "tool_input": {"command": "git status"},
+              "tool_name": "Bash",
+              "tool_use_id": "tool-1",
+              "transcript_path": null,
+              "turn_id": "turn-1"
+            }
+            """
+        )
+        stdout = StringIO()
+        monkeypatch.setattr(
+            "agent_hooks.processor.should_auto_allow_codex_permission_request",
+            lambda _payload: False,
+        )
 
         exit_code = run_callback(
             stdin=stdin,
@@ -876,6 +1018,7 @@ class TestRunCallback:
     def test_run_callback_codex_denial_renders_pre_tool_use_decision(
         self,
         tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         stdin = StringIO(
             """
@@ -904,6 +1047,10 @@ class TestRunCallback:
                     stdout="button returned:Deny",
                 ),
             )
+        )
+        monkeypatch.setattr(
+            "agent_hooks.processor.should_auto_allow_codex_permission_request",
+            lambda _payload: False,
         )
 
         exit_code = run_callback(
@@ -993,7 +1140,11 @@ class TestRunCallback:
             '"decision":{"behavior":"deny"}}}\n'
         )
 
-    def test_agent_hook_provider_is_used_by_default(self, tmp_path: Path) -> None:
+    def test_agent_hook_provider_is_used_by_default(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
         hook = AgentHook(provider=HookProvider.CODEX)
         stdin = StringIO(
             """
@@ -1013,6 +1164,10 @@ class TestRunCallback:
         )
         stdout = StringIO()
         runtime_config = build_runtime_config(tmp_path)
+        monkeypatch.setattr(
+            "agent_hooks.processor.should_auto_allow_codex_permission_request",
+            lambda _payload: False,
+        )
 
         exit_code = hook.run_callback(
             stdin=stdin,
