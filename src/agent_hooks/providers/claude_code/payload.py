@@ -1,16 +1,10 @@
-"""Normalize Claude Code payloads."""
+"""Normalize and detect Claude Code payloads."""
 
 from __future__ import annotations
 
-from agent_hooks.enums import HookEventName, HookProvider, NotificationType
-from agent_hooks.models import (
-    HookPayload,
-    JsonObject,
-    PermissionRule,
-    PermissionSuggestion,
-    ToolInput,
-)
-from agent_hooks.providers.common import coerce_enum, coerce_object, coerce_object_list, coerce_text
+from agent_hooks.enums import HookEventName, HookProvider
+from agent_hooks.models import HookPayload, JsonObject, ToolInput
+from agent_hooks.providers.common import coerce_object, coerce_text
 
 RAW_EVENT_TO_NORMALIZED = {
     "Notification": HookEventName.NOTIFICATION,
@@ -18,6 +12,45 @@ RAW_EVENT_TO_NORMALIZED = {
     "Stop": HookEventName.STOP,
     "StopFailure": HookEventName.STOP_FAILURE,
 }
+CLAUDE_ONLY_EVENTS = frozenset(
+    {
+        "Notification",
+        "PermissionRequest",
+        "PermissionDenied",
+        "StopFailure",
+        "InstructionsLoaded",
+        "SubagentStart",
+        "SubagentStop",
+        "TaskCreated",
+        "TaskCompleted",
+        "TeammateIdle",
+        "ConfigChange",
+        "CwdChanged",
+        "FileChanged",
+        "WorktreeCreate",
+        "WorktreeRemove",
+        "PreCompact",
+        "PostCompact",
+        "Elicitation",
+        "ElicitationResult",
+        "SessionEnd",
+    }
+)
+CODEX_MARKERS = {"session_id", "cwd", "permission_mode", "transcript_path"}
+
+
+def matches_payload(raw_payload: JsonObject) -> bool:
+    """Return whether the raw payload should be handled by Claude Code."""
+    raw_event_name = coerce_text(raw_payload.get("hook_event_name"))
+    if raw_event_name in CLAUDE_ONLY_EVENTS:
+        return True
+    if raw_event_name == "SessionStart":
+        return not any(marker in raw_payload for marker in CODEX_MARKERS)
+    if raw_event_name in {"PreToolUse", "PostToolUse", "UserPromptSubmit"}:
+        return False
+    if raw_event_name == "Stop":
+        return "turn_id" not in raw_payload
+    return False
 
 
 def build_hook_payload(raw_payload: JsonObject) -> HookPayload:
@@ -31,11 +64,6 @@ def build_hook_payload(raw_payload: JsonObject) -> HookPayload:
         provider=HookProvider.CLAUDE_CODE,
         event_name=RAW_EVENT_TO_NORMALIZED.get(raw_event_name, HookEventName.UNKNOWN),
         raw_event_name=raw_event_name,
-        notification_type=coerce_enum(
-            raw_notification_type,
-            NotificationType,
-            NotificationType.UNKNOWN,
-        ),
         raw_notification_type=raw_notification_type,
         model=coerce_text(raw_payload.get("model")),
         permission_mode=coerce_text(raw_payload.get("permission_mode")),
@@ -61,28 +89,4 @@ def build_hook_payload(raw_payload: JsonObject) -> HookPayload:
             prompt=coerce_text(tool_input_raw.get("prompt")),
             pattern=coerce_text(tool_input_raw.get("pattern")),
         ),
-        permission_suggestions=tuple(build_permission_suggestions(raw_payload)),
     )
-
-
-def build_permission_suggestions(raw_payload: JsonObject) -> list[PermissionSuggestion]:
-    """Normalize Claude permission suggestions from the raw payload."""
-    suggestions: list[PermissionSuggestion] = []
-    for suggestion_raw in coerce_object_list(raw_payload.get("permission_suggestions")):
-        rules = tuple(build_permission_rules(suggestion_raw))
-        suggestions.append(PermissionSuggestion(raw=dict(suggestion_raw), rules=rules))
-    return suggestions
-
-
-def build_permission_rules(suggestion_raw: JsonObject) -> list[PermissionRule]:
-    """Normalize Claude permission rules from one suggestion payload."""
-    rules: list[PermissionRule] = []
-    for rule_raw in coerce_object_list(suggestion_raw.get("rules")):
-        rules.append(
-            PermissionRule(
-                tool_name=coerce_text(rule_raw.get("toolName")),
-                rule_content=coerce_text(rule_raw.get("ruleContent")),
-                raw=dict(rule_raw),
-            )
-        )
-    return rules

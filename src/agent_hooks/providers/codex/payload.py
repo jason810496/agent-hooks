@@ -1,10 +1,10 @@
-"""Normalize Codex payloads."""
+"""Normalize and detect Codex payloads."""
 
 from __future__ import annotations
 
 from agent_hooks.enums import HookEventName, HookProvider
 from agent_hooks.models import HookPayload, JsonObject, ToolInput
-from agent_hooks.providers.common import coerce_bool, coerce_object, coerce_text
+from agent_hooks.providers.common import coerce_object, coerce_text
 
 RAW_EVENT_TO_NORMALIZED = {
     "SessionStart": HookEventName.SESSION_START,
@@ -13,6 +13,17 @@ RAW_EVENT_TO_NORMALIZED = {
     "UserPromptSubmit": HookEventName.USER_PROMPT_SUBMIT,
     "Stop": HookEventName.STOP,
 }
+
+
+def matches_payload(raw_payload: JsonObject) -> bool:
+    """Return whether the raw payload should be handled by Codex."""
+    raw_event_name = coerce_text(raw_payload.get("hook_event_name"))
+    if raw_event_name in {"PreToolUse", "PostToolUse", "UserPromptSubmit", "Stop"}:
+        return "turn_id" in raw_payload
+    if raw_event_name == "SessionStart":
+        codex_markers = {"session_id", "cwd", "permission_mode", "transcript_path"}
+        return any(marker in raw_payload for marker in codex_markers)
+    return False
 
 
 def build_hook_payload(raw_payload: JsonObject) -> HookPayload:
@@ -34,11 +45,8 @@ def build_hook_payload(raw_payload: JsonObject) -> HookPayload:
         session_id=coerce_text(raw_payload.get("session_id")),
         cwd=coerce_text(raw_payload.get("cwd")),
         transcript_path=coerce_text(raw_payload.get("transcript_path")),
-        turn_id=coerce_text(raw_payload.get("turn_id")),
         tool_name=coerce_text(raw_payload.get("tool_name")),
         tool_use_id=coerce_text(raw_payload.get("tool_use_id")),
-        stop_hook_active=coerce_bool(raw_payload.get("stop_hook_active")),
-        tool_response=raw_payload.get("tool_response"),
         tool_input=ToolInput(
             raw=tool_input_raw,
             command=coerce_text(tool_input_raw.get("command")),

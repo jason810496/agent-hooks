@@ -179,7 +179,7 @@ class TestReadHookInput:
         assert result.payload.raw_event_name == "PreToolUse"
         assert result.payload.tool_input.command == "git status"
         assert result.payload.model == "gpt-5.4"
-        assert result.payload.turn_id == "turn-1"
+        assert result.payload.raw["turn_id"] == "turn-1"
 
 
 class TestPresentation:

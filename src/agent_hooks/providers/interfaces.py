@@ -5,9 +5,23 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from agent_hooks.enums import HookProvider
+from agent_hooks.enums import DialogButton, HookProvider
 from agent_hooks.middleware import HookMiddleware
-from agent_hooks.models import HookPayload, JsonObject
+from agent_hooks.models import (
+    AppleScriptDialogResponse,
+    DialogSpec,
+    HookPayload,
+    JsonObject,
+    NotificationSpec,
+)
+
+
+class HookPayloadMatcher(Protocol):
+    """Define the provider detection callable used by one provider."""
+
+    def __call__(self, raw_payload: JsonObject) -> bool:
+        """Return whether one provider owns the raw payload."""
+        ...
 
 
 class HookPayloadBuilder(Protocol):
@@ -31,11 +45,39 @@ class HookResponseRenderer(Protocol):
         ...
 
 
+class HookNotificationBuilder(Protocol):
+    """Define the notification builder used by one provider."""
+
+    def __call__(self, payload: HookPayload) -> NotificationSpec | None:
+        """Build a provider-specific notification request when supported."""
+        ...
+
+
+class HookPermissionDialogBuilder(Protocol):
+    """Define the permission dialog builder used by one provider."""
+
+    def __call__(self, payload: HookPayload) -> DialogSpec:
+        """Build a provider-specific permission dialog."""
+        ...
+
+
+class HookPermissionResponseBuilder(Protocol):
+    """Define the permission response builder used by one provider."""
+
+    def __call__(self, button: DialogButton, payload: HookPayload) -> AppleScriptDialogResponse:
+        """Build the provider response for one permission dialog decision."""
+        ...
+
+
 @dataclass(frozen=True)
 class HookProviderAdapter:
     """Store the pluggable behavior exposed by one provider module."""
 
     provider: HookProvider
+    matches_payload: HookPayloadMatcher
     build_hook_payload: HookPayloadBuilder
     render_response_payload: HookResponseRenderer
+    build_notification: HookNotificationBuilder
+    build_permission_dialog: HookPermissionDialogBuilder
+    build_permission_response: HookPermissionResponseBuilder
     middlewares: tuple[HookMiddleware, ...] = ()

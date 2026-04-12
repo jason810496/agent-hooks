@@ -12,6 +12,7 @@ from agent_hooks.models import (
     HookResponse,
 )
 from agent_hooks.presentation import build_notification, build_permission_dialog
+from agent_hooks.providers import build_permission_response as build_provider_permission_response
 from agent_hooks.transport import DisplayTransport
 
 DEFAULT_HOOK_RESPONSE = HookResponse()
@@ -108,7 +109,8 @@ def process_notification_event(
 
 
 def build_permission_response(
-    button: DialogButton, payload: HookPayload
+    button: DialogButton,
+    payload: HookPayload,
 ) -> AppleScriptDialogResponse:
     """Build the permission response for a selected dialog button.
 
@@ -118,7 +120,7 @@ def build_permission_response(
     :type payload: HookPayload
     :return: Structured permission response model.
     """
-    return AppleScriptDialogResponse(button=button, payload=payload)
+    return build_provider_permission_response(button, payload)
 
 
 def transport_error(transport_result: object, current_error: str | None) -> str | None:

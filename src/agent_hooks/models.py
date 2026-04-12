@@ -12,7 +12,6 @@ from agent_hooks.enums import (
     HookEventName,
     HookProvider,
     NotificationSound,
-    NotificationType,
     PermissionBehavior,
     PermissionDestination,
     TransportStatus,
@@ -21,23 +20,6 @@ from agent_hooks.enums import (
 JsonScalar: TypeAlias = str | int | float | bool | None
 JsonValue: TypeAlias = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
 JsonObject: TypeAlias = dict[str, JsonValue]
-
-
-@dataclass(frozen=True)
-class PermissionRule:
-    """Store one suggested Claude permission rule."""
-
-    tool_name: str = ""
-    rule_content: str = ""
-    raw: JsonObject = field(default_factory=dict)
-
-
-@dataclass(frozen=True)
-class PermissionSuggestion:
-    """Store one Claude permission suggestion payload."""
-
-    raw: JsonObject = field(default_factory=dict)
-    rules: tuple[PermissionRule, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -62,7 +44,6 @@ class HookPayload:
     provider: HookProvider = HookProvider.CLAUDE_CODE
     event_name: HookEventName = HookEventName.UNKNOWN
     raw_event_name: str = ""
-    notification_type: NotificationType = NotificationType.UNKNOWN
     raw_notification_type: str = ""
     model: str = ""
     permission_mode: str = ""
@@ -76,13 +57,9 @@ class HookPayload:
     session_id: str = ""
     cwd: str = ""
     transcript_path: str = ""
-    turn_id: str = ""
     tool_name: str = ""
     tool_use_id: str = ""
-    stop_hook_active: bool = False
-    tool_response: JsonValue | None = None
     tool_input: ToolInput = field(default_factory=ToolInput)
-    permission_suggestions: tuple[PermissionSuggestion, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -252,69 +229,18 @@ class AppleScriptDialogResponse:
 
     button: DialogButton
     payload: HookPayload
+    hook_specific_output: HookSpecificOutput | None = None
     suppress_output: bool = True
 
-    @property
-    def hook_specific_output(self) -> HookSpecificOutput | None:
-        """Build the permission-specific output block."""
-        if self.payload.provider == HookProvider.CODEX:
-            return _build_codex_hook_specific_output(self.button)
-        else:
-            decision = _build_claude_permission_decision(self.button, self.payload)
-
-        return HookSpecificOutput(
-            hook_event_name=HookEventName.PERMISSION_REQUEST,
-            decision=decision,
-            permission_decision_reason=(
-                "Permission denied by local user." if self.button == DialogButton.DENY else ""
-            ),
-        )
-
     def as_payload(self) -> JsonObject:
-        """Serialize the dialog selection into Claude's hook payload format.
+        """Serialize the dialog selection into the normalized hook payload format.
 
-        :return: JSON payload for Claude's hook protocol.
+        :return: Provider-neutral response payload.
         """
         return HookResponse(
             suppress_output=self.suppress_output,
             hook_specific_output=self.hook_specific_output,
         ).as_payload()
-
-
-def _build_claude_permission_decision(
-    button: DialogButton,
-    payload: HookPayload,
-) -> PermissionDecision:
-    """Build the Claude Code permission decision for one dialog button."""
-    if button == DialogButton.DENY:
-        return PermissionDecision(behavior=PermissionBehavior.DENY)
-
-    updates: tuple[PermissionUpdate, ...] = ()
-    if button == DialogButton.ALWAYS_ALLOW:
-        updates = tuple(
-            PermissionUpdate(source=suggestion.raw) for suggestion in payload.permission_suggestions
-        )
-    return PermissionDecision(
-        behavior=PermissionBehavior.ALLOW,
-        updated_permissions=updates,
-    )
-
-
-def _build_codex_permission_decision(button: DialogButton) -> PermissionDecision:
-    """Build the Codex PreToolUse permission decision for one dialog button."""
-    return PermissionDecision(behavior=PermissionBehavior.DENY)
-
-
-def _build_codex_hook_specific_output(button: DialogButton) -> HookSpecificOutput | None:
-    """Build Codex PreToolUse output for one dialog button."""
-    if button != DialogButton.DENY:
-        return None
-
-    return HookSpecificOutput(
-        hook_event_name=HookEventName.PERMISSION_REQUEST,
-        decision=_build_codex_permission_decision(button),
-        permission_decision_reason="Permission denied by local user.",
-    )
 
 
 @dataclass(frozen=True)

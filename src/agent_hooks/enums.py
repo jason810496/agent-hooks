@@ -25,16 +25,6 @@ class HookEventName(str, Enum):
     UNKNOWN = "Unknown"
 
 
-class NotificationType(str, Enum):
-    """Represent supported Claude notification types."""
-
-    PERMISSION_PROMPT = "permission_prompt"
-    IDLE_PROMPT = "idle_prompt"
-    AUTH_SUCCESS = "auth_success"
-    ELICITATION_DIALOG = "elicitation_dialog"
-    UNKNOWN = "unknown"
-
-
 class NotificationSound(str, Enum):
     """Represent macOS notification sounds used by the callback."""
 
