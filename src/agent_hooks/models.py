@@ -258,7 +258,7 @@ class AppleScriptDialogResponse:
     def hook_specific_output(self) -> HookSpecificOutput | None:
         """Build the permission-specific output block."""
         if self.payload.provider == HookProvider.CODEX:
-            return _build_codex_hook_specific_output(self.button)
+            return _build_codex_hook_specific_output(self.button, self.payload)
         else:
             decision = _build_claude_permission_decision(self.button, self.payload)
 
@@ -302,18 +302,35 @@ def _build_claude_permission_decision(
 
 def _build_codex_permission_decision(button: DialogButton) -> PermissionDecision:
     """Build the Codex PreToolUse permission decision for one dialog button."""
-    return PermissionDecision(behavior=PermissionBehavior.DENY)
+    if button == DialogButton.DENY:
+        return PermissionDecision(behavior=PermissionBehavior.DENY)
+    if button == DialogButton.ALLOW_ONCE:
+        return PermissionDecision(behavior=PermissionBehavior.ASK)
+    return PermissionDecision(behavior=PermissionBehavior.ALLOW)
 
 
-def _build_codex_hook_specific_output(button: DialogButton) -> HookSpecificOutput | None:
+def _build_codex_hook_specific_output(
+    button: DialogButton,
+    payload: HookPayload,
+) -> HookSpecificOutput | None:
     """Build Codex PreToolUse output for one dialog button."""
-    if button != DialogButton.DENY:
+    from agent_hooks.session_rules import CODEX_SUPPORT_NATIVE_ASK_AND_ALLOW_TOOL_USE
+
+    if not CODEX_SUPPORT_NATIVE_ASK_AND_ALLOW_TOOL_USE:
+        if button == DialogButton.DENY:
+            return HookSpecificOutput(
+                hook_event_name=HookEventName.PERMISSION_REQUEST,
+                decision=PermissionDecision(behavior=PermissionBehavior.DENY),
+                permission_decision_reason="Permission denied by local user.",
+            )
         return None
 
     return HookSpecificOutput(
         hook_event_name=HookEventName.PERMISSION_REQUEST,
         decision=_build_codex_permission_decision(button),
-        permission_decision_reason="Permission denied by local user.",
+        permission_decision_reason=(
+            "Permission denied by local user." if button == DialogButton.DENY else ""
+        ),
     )
 
 

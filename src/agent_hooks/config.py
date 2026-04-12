@@ -18,6 +18,7 @@ DEFAULT_LOG_DIRECTORY_NAME = "logs"
 DEFAULT_APPLICATION_LOG_FILENAME = "hooks.log"
 DEFAULT_INPUT_AUDIT_LOG_FILENAME = "hooks.raw.log"
 DEFAULT_RESPONSE_AUDIT_LOG_FILENAME = "hooks.response.log"
+DEFAULT_SESSION_RULES_DIRECTORY_NAME = "session-rules"
 
 APPLICATION_LOG_FORMAT_ENV_VAR = "AGENT_HOOK_APP_LOG_FORMAT"
 APPLICATION_LOG_LEVEL_ENV_VAR = "AGENT_HOOK_APP_LOG_LEVEL"
@@ -25,6 +26,8 @@ APPLICATION_LOG_PATH_ENV_VAR = "AGENT_HOOK_APP_LOG_PATH"
 APPLICATION_LOG_MAX_BYTES_ENV_VAR = "AGENT_HOOK_APP_LOG_MAX_BYTES"
 APPLICATION_LOG_BACKUP_COUNT_ENV_VAR = "AGENT_HOOK_APP_LOG_BACKUP_COUNT"
 PROVIDER_ENV_VAR = "AGENT_HOOK_PROVIDER"
+SESSION_RULES_DIR_ENV_VAR = "AGENT_HOOK_SESSION_RULES_DIR"
+SESSION_RULES_RETENTION_DAYS_ENV_VAR = "AGENT_HOOK_SESSION_RULES_RETENTION_DAYS"
 DISABLE_OSASCRIPT_ENV_VARS = (
     "AGENT_HOOK_DISABLE_OSASCRIPT",
     "CLAUDE_HOOK_DISABLE_OSASCRIPT",
@@ -84,6 +87,8 @@ class RuntimeConfig:
 
     project_root: Path
     log_directory: Path
+    session_rules_directory: Path
+    session_rules_retention_days: int
     provider: HookProvider | None
     skip_osascript: bool
     application_logging: ApplicationLoggingConfig
@@ -136,6 +141,19 @@ def load_runtime_config(env: Mapping[str, str] | None = None) -> RuntimeConfig:
         GLOBAL_LOG_DIRECTORY_ENV_VAR,
         default=project_root / DEFAULT_LOG_DIRECTORY_NAME,
         project_root=project_root,
+    )
+    session_rules_directory = read_path_env(
+        environment,
+        SESSION_RULES_DIR_ENV_VAR,
+        default=log_directory / DEFAULT_SESSION_RULES_DIRECTORY_NAME,
+        project_root=project_root,
+    )
+    session_rules_retention_days = read_non_negative_int_env(
+        environment,
+        primary_env_var=SESSION_RULES_RETENTION_DAYS_ENV_VAR,
+        fallback_env_vars=(),
+        default=30,
+        warnings=warnings,
     )
     skip_osascript = read_boolean_env(
         environment,
@@ -190,6 +208,8 @@ def load_runtime_config(env: Mapping[str, str] | None = None) -> RuntimeConfig:
     return RuntimeConfig(
         project_root=project_root,
         log_directory=log_directory,
+        session_rules_directory=session_rules_directory,
+        session_rules_retention_days=session_rules_retention_days,
         provider=provider,
         skip_osascript=skip_osascript,
         application_logging=ApplicationLoggingConfig(

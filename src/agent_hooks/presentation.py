@@ -161,7 +161,11 @@ def provider_short_name(provider: HookProvider) -> str:
 def permission_dialog_buttons(provider: HookProvider) -> tuple[DialogButton, ...]:
     """Return the supported permission dialog buttons for one provider."""
     if provider == HookProvider.CODEX:
-        return (DialogButton.DENY, DialogButton.ALLOW_ONCE)
+        return (
+            DialogButton.DENY,
+            DialogButton.ALLOW_ONCE,
+            DialogButton.ALWAYS_ALLOW,
+        )
     return (
         DialogButton.DENY,
         DialogButton.ALLOW_ONCE,

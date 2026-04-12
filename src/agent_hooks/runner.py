@@ -34,6 +34,7 @@ from agent_hooks.models import (
 from agent_hooks.parsing import read_hook_input
 from agent_hooks.processor import process_hook
 from agent_hooks.providers import coerce_provider, render_response_payload
+from agent_hooks.session_rules import prune_stale_session_rules
 from agent_hooks.transport import AppleScriptTransport, DisplayTransport
 
 
@@ -147,6 +148,7 @@ def run_callback(
     config = runtime_config or load_runtime_config()
     callback_target = resolve_callback_target(hook)
     selected_provider = resolve_provider(provider, callback_target, config)
+    prune_stale_session_rules(config.session_rules_directory, config.session_rules_retention_days)
     input_data = read_hook_input(stdin, provider=selected_provider)
     resolved_provider = input_data.payload.provider
     append_input_audit_log(
@@ -161,7 +163,12 @@ def run_callback(
         config.audit_logging.input_file,
     )
     display_transport = transport or AppleScriptTransport(skip_osascript=config.skip_osascript)
-    result = dispatch_callback(callback_target, input_data, display_transport)
+    result = dispatch_callback(
+        callback_target,
+        input_data,
+        display_transport,
+        session_rules_directory=config.session_rules_directory,
+    )
     response_text = render_hook_response(
         result.response,
         provider=resolved_provider,
@@ -527,6 +534,8 @@ def dispatch_callback(
     hook: CallbackTarget | None,
     input_data: HookInput,
     transport: DisplayTransport,
+    *,
+    session_rules_directory: Path | None = None,
 ) -> HookProcessingResult:
     """Dispatch a parsed hook request through the configured callback target.
 
@@ -536,11 +545,17 @@ def dispatch_callback(
     :type input_data: HookInput
     :param transport: Display transport implementation.
     :type transport: DisplayTransport
+    :param session_rules_directory: Optional session-rule storage root.
+    :type session_rules_directory: Path | None
     :return: Processing result for logging and emission.
     :raises TypeError: If the callback target does not expose a supported interface.
     """
     if hook is None:
-        return process_hook(input_data, transport)
+        return process_hook(
+            input_data,
+            transport,
+            session_rules_directory=session_rules_directory,
+        )
 
     if isinstance(hook, str):
         hook = load_callback_target(hook)

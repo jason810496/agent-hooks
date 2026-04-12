@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+import agent_hooks.session_rules as session_rules
 from agent_hooks import AgentHook, CallbackRequest, NotificationEvent, PermissionRequestEvent
 from agent_hooks.cli_app.app import app
 from agent_hooks.cli_app.cli import main as cli_main
@@ -89,6 +90,8 @@ def build_runtime_config(
     return RuntimeConfig(
         project_root=tmp_path,
         log_directory=tmp_path / "logs",
+        session_rules_directory=tmp_path / "logs" / "session-rules",
+        session_rules_retention_days=30,
         provider=provider,
         skip_osascript=True,
         application_logging=ApplicationLoggingConfig(
@@ -199,7 +202,7 @@ class TestPresentation:
         assert dialog.default_button == DialogButton.ALLOW_ONCE
         assert '"Always Allow" adds session rule: Bash(git *)' in dialog.message
 
-    def test_codex_permission_dialog_uses_two_buttons(self) -> None:
+    def test_codex_permission_dialog_uses_three_buttons(self) -> None:
         payload = build_hook_payload(
             {
                 "hook_event_name": "PreToolUse",
@@ -219,7 +222,11 @@ class TestPresentation:
         dialog = build_permission_dialog(payload)
 
         assert dialog.title == "Codex — Permission Request"
-        assert dialog.buttons == (DialogButton.DENY, DialogButton.ALLOW_ONCE)
+        assert dialog.buttons == (
+            DialogButton.DENY,
+            DialogButton.ALLOW_ONCE,
+            DialogButton.ALWAYS_ALLOW,
+        )
 
 
 class TestPermissionResponse:
@@ -354,6 +361,59 @@ class TestPermissionResponse:
             )
             == {}
         )
+
+    def test_codex_native_support_renders_native_permission_decisions(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(
+            session_rules,
+            "CODEX_SUPPORT_NATIVE_ASK_AND_ALLOW_TOOL_USE",
+            True,
+        )
+        payload = build_hook_payload(
+            {
+                "hook_event_name": "PreToolUse",
+                "cwd": "/tmp/project",
+                "model": "gpt-5.4",
+                "permission_mode": "default",
+                "session_id": "session-1",
+                "tool_input": {"command": "git status"},
+                "tool_name": "Bash",
+                "tool_use_id": "tool-1",
+                "transcript_path": None,
+                "turn_id": "turn-1",
+            },
+            provider=HookProvider.CODEX,
+        )
+
+        allow_once = build_permission_response(DialogButton.ALLOW_ONCE, payload)
+        always_allow = build_permission_response(DialogButton.ALWAYS_ALLOW, payload)
+
+        assert json.loads(
+            render_hook_response(
+                allow_once,
+                provider=HookProvider.CODEX,
+                input_payload=payload,
+            )
+        ) == {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "ask",
+            },
+        }
+        assert json.loads(
+            render_hook_response(
+                always_allow,
+                provider=HookProvider.CODEX,
+                input_payload=payload,
+            )
+        ) == {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "allow",
+            },
+        }
 
     def test_claude_stop_response_includes_supported_top_level_fields(self) -> None:
         payload = build_hook_payload(
@@ -665,6 +725,8 @@ class TestRuntimeConfig:
 
         assert config.project_root == tmp_path
         assert config.log_directory == tmp_path / "var" / "logs"
+        assert config.session_rules_directory == tmp_path / "var" / "logs" / "session-rules"
+        assert config.session_rules_retention_days == 30
         assert config.provider == HookProvider.CODEX
         assert config.skip_osascript is True
         assert config.application_logging.file.path == tmp_path / "runtime" / "app.log"

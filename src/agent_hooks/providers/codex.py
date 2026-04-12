@@ -93,7 +93,13 @@ def render_response_payload(
     if raw_payload.get("systemMessage"):
         payload["systemMessage"] = coerce_text(raw_payload.get("systemMessage"))
     if event_name in EVENTS_WITH_DECISION and raw_payload.get("decision"):
-        payload["decision"] = coerce_text(raw_payload.get("decision"))
+        if event_name == HookEventName.PERMISSION_REQUEST:
+            decision = coerce_object(raw_payload.get("decision"))
+            behavior = coerce_text(decision.get("behavior"))
+            if behavior in {"allow", "ask", "deny"}:
+                payload["permissionDecision"] = behavior
+        else:
+            payload["decision"] = coerce_text(raw_payload.get("decision"))
     if event_name in EVENTS_WITH_DECISION and raw_payload.get("reason"):
         payload["reason"] = coerce_text(raw_payload.get("reason"))
 
@@ -141,7 +147,7 @@ def render_hook_specific_output(
         behavior = coerce_text(decision.get("behavior"))
         if raw_payload.get("permissionDecision") and not behavior:
             behavior = coerce_text(raw_payload.get("permissionDecision"))
-        if behavior == "deny":
+        if behavior in {"allow", "ask", "deny"}:
             payload["permissionDecision"] = behavior
         reason = coerce_text(raw_payload.get("permissionDecisionReason"))
         if reason:

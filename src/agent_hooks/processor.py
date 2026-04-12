@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from agent_hooks.enums import DialogButton, HookEventName, TransportStatus
 from agent_hooks.models import (
     AppleScriptDialogResponse,
@@ -12,12 +14,23 @@ from agent_hooks.models import (
     HookResponse,
 )
 from agent_hooks.presentation import build_notification, build_permission_dialog
+from agent_hooks.session_rules import (
+    CODEX_SUPPORT_NATIVE_ASK_AND_ALLOW_TOOL_USE,
+    load_session_rules,
+    matches_session_rule,
+    store_session_rule,
+)
 from agent_hooks.transport import DisplayTransport
 
 DEFAULT_HOOK_RESPONSE = HookResponse()
 
 
-def process_hook(input_data: HookInput, transport: DisplayTransport) -> HookProcessingResult:
+def process_hook(
+    input_data: HookInput,
+    transport: DisplayTransport,
+    *,
+    session_rules_directory: Path | None = None,
+) -> HookProcessingResult:
     """Process a parsed hook payload into a response and optional UI action.
 
     :param input_data: Parsed hook input.
@@ -37,7 +50,12 @@ def process_hook(input_data: HookInput, transport: DisplayTransport) -> HookProc
 
     payload = input_data.payload
     if payload.event_name == HookEventName.PERMISSION_REQUEST:
-        return process_permission_request(payload, transport, current_error=error)
+        return process_permission_request(
+            payload,
+            transport,
+            current_error=error,
+            session_rules_directory=session_rules_directory,
+        )
 
     return process_notification_event(payload, transport, current_error=error)
 
@@ -47,6 +65,7 @@ def process_permission_request(
     transport: DisplayTransport,
     *,
     current_error: str | None = None,
+    session_rules_directory: Path | None = None,
 ) -> HookProcessingResult:
     """Process a permission request through the display transport.
 
@@ -58,6 +77,22 @@ def process_permission_request(
     :type current_error: str | None
     :return: Processing result for logging and emission.
     """
+    if (
+        not CODEX_SUPPORT_NATIVE_ASK_AND_ALLOW_TOOL_USE
+        and payload.provider.value == "codex"
+        and session_rules_directory is not None
+    ):
+        stored_rules = load_session_rules(
+            session_rules_directory, payload.provider, payload.session_id
+        )
+        if matches_session_rule(payload, stored_rules):
+            return HookProcessingResult(
+                display=None,
+                transport_result=None,
+                response=DEFAULT_HOOK_RESPONSE,
+                error=current_error,
+            )
+
     dialog = build_permission_dialog(payload)
     dialog_result = transport.show_dialog(dialog)
     response = (
@@ -65,6 +100,22 @@ def process_permission_request(
         if dialog_result.button is not None
         else DEFAULT_HOOK_RESPONSE
     )
+    if (
+        not CODEX_SUPPORT_NATIVE_ASK_AND_ALLOW_TOOL_USE
+        and payload.provider.value == "codex"
+        and dialog_result.button is not None
+        and dialog_result.button.value == "Always Allow"
+        and session_rules_directory is not None
+        and payload.tool_name
+        and payload.tool_input.command
+    ):
+        store_session_rule(
+            session_rules_directory,
+            payload.provider,
+            payload.session_id,
+            payload.tool_name,
+            payload.tool_input.command,
+        )
     return HookProcessingResult(
         display=dialog,
         transport_result=dialog_result.transport,
