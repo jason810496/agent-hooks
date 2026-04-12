@@ -5,6 +5,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 from typing import Protocol
 
 from agent_hooks.enums import AppleScriptInvocation, DialogButton, TransportStatus
@@ -34,13 +35,27 @@ on run argv
     set theMessage to item 1 of argv
     set theTitle to item 2 of argv
     set theDefault to item 3 of argv
+    set theIconPath to item 4 of argv
     set buttonList to {}
-    repeat with i from 4 to (count of argv)
+    repeat with i from 5 to (count of argv)
         set end of buttonList to item i of argv
     end repeat
-    display dialog theMessage with title theTitle buttons buttonList default button theDefault with icon caution
+    if theIconPath is "" then
+        display dialog theMessage with title theTitle buttons buttonList default button theDefault with icon caution
+    else
+        display dialog theMessage with title theTitle buttons buttonList default button theDefault with icon (POSIX file theIconPath)
+    end if
 end run
 """.strip()
+
+OSASCRIPT_LOGO_PATH = Path(__file__).resolve().parent / "assets" / "osascript-logo.png"
+
+
+def resolve_dialog_icon_path() -> str:
+    """Return the packaged dialog icon path when available."""
+    if OSASCRIPT_LOGO_PATH.is_file():
+        return str(OSASCRIPT_LOGO_PATH)
+    return ""
 
 
 class DisplayTransport(Protocol):
@@ -108,6 +123,7 @@ class AppleScriptTransport:
                 dialog.message,
                 dialog.title,
                 dialog.default_button.value,
+                resolve_dialog_icon_path(),
                 *(button.value for button in dialog.buttons),
             ],
             script=DIALOG_SCRIPT,
