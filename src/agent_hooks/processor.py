@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 from agent_hooks.enums import DialogButton, HookEventName, TransportStatus
 from agent_hooks.models import (
     AppleScriptDialogResponse,
@@ -13,6 +15,12 @@ from agent_hooks.models import (
 )
 from agent_hooks.presentation import build_notification, build_permission_dialog
 from agent_hooks.providers import build_permission_response as build_provider_permission_response
+from agent_hooks.router import (
+    NotificationEvent,
+    PermissionRequestEvent,
+    StopEvent,
+    StopFailureEvent,
+)
 from agent_hooks.transport import DisplayTransport
 
 DEFAULT_HOOK_RESPONSE = HookResponse()
@@ -44,7 +52,7 @@ def process_hook(input_data: HookInput, transport: DisplayTransport) -> HookProc
 
 
 def process_permission_request(
-    payload: HookPayload,
+    payload: HookPayload | PermissionRequestEvent,
     transport: DisplayTransport,
     *,
     current_error: str | None = None,
@@ -59,10 +67,11 @@ def process_permission_request(
     :type current_error: str | None
     :return: Processing result for logging and emission.
     """
-    dialog = build_permission_dialog(payload)
+    normalized_payload = cast(HookPayload, payload)
+    dialog = build_permission_dialog(normalized_payload)
     dialog_result = transport.show_dialog(dialog)
     response = (
-        build_permission_response(dialog_result.button, payload)
+        build_permission_response(dialog_result.button, normalized_payload)
         if dialog_result.button is not None
         else DEFAULT_HOOK_RESPONSE
     )
@@ -75,7 +84,7 @@ def process_permission_request(
 
 
 def process_notification_event(
-    payload: HookPayload,
+    payload: HookPayload | NotificationEvent | StopEvent | StopFailureEvent,
     transport: DisplayTransport,
     *,
     current_error: str | None = None,
@@ -90,7 +99,7 @@ def process_notification_event(
     :type current_error: str | None
     :return: Processing result for logging and emission.
     """
-    notification = build_notification(payload)
+    notification = build_notification(cast(HookPayload, payload))
     if notification is None:
         return HookProcessingResult(
             display=None,
@@ -110,7 +119,7 @@ def process_notification_event(
 
 def build_permission_response(
     button: DialogButton,
-    payload: HookPayload,
+    payload: HookPayload | PermissionRequestEvent,
 ) -> AppleScriptDialogResponse:
     """Build the permission response for a selected dialog button.
 
@@ -120,7 +129,7 @@ def build_permission_response(
     :type payload: HookPayload
     :return: Structured permission response model.
     """
-    return build_provider_permission_response(button, payload)
+    return build_provider_permission_response(button, cast(HookPayload, payload))
 
 
 def transport_error(transport_result: object, current_error: str | None) -> str | None:

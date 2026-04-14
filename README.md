@@ -104,6 +104,7 @@ agent-hooks run my_hooks:app --app-dir .
 ```
 
 The normalized router model is provider-neutral. For example, Claude `PermissionRequest` and Codex `PreToolUse` both route through `@app.permission()`.
+Each route decorator injects its own dedicated event schema, with shared metadata on `HookEvent` and route-specific fields on models such as `NotificationEvent` and `PermissionRequestEvent`.
 
 Any custom response model is acceptable as long as it fits the hook response protocol: it must expose `suppress_output`, `hook_specific_output`, and `as_payload()`.
 

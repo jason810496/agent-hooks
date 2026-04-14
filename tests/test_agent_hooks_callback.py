@@ -2,12 +2,23 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import fields
 from io import StringIO
 from pathlib import Path
 
 import pytest
 
-from agent_hooks import AgentHook, CallbackRequest, NotificationEvent, PermissionRequestEvent
+from agent_hooks import (
+    AgentHook,
+    CallbackRequest,
+    NotificationEvent,
+    PermissionRequestEvent,
+    PostToolUseEvent,
+    SessionStartEvent,
+    StopEvent,
+    StopFailureEvent,
+    UserPromptSubmitEvent,
+)
 from agent_hooks.cli_app.app import app
 from agent_hooks.cli_app.cli import main as cli_main
 from agent_hooks.config import (
@@ -573,6 +584,148 @@ class TestCodexExecPolicy:
 
 
 class TestAgentHook:
+    @pytest.mark.parametrize(
+        ("event_model", "expected_fields", "unexpected_fields"),
+        [
+            pytest.param(
+                NotificationEvent,
+                {
+                    "raw",
+                    "provider",
+                    "event_name",
+                    "raw_event_name",
+                    "model",
+                    "session_id",
+                    "cwd",
+                    "transcript_path",
+                    "raw_notification_type",
+                    "title",
+                    "message",
+                },
+                {"permission_mode", "tool_name", "tool_use_id", "tool_input", "error_details"},
+                id="notification",
+            ),
+            pytest.param(
+                PermissionRequestEvent,
+                {
+                    "raw",
+                    "provider",
+                    "event_name",
+                    "raw_event_name",
+                    "model",
+                    "session_id",
+                    "cwd",
+                    "transcript_path",
+                    "permission_mode",
+                    "prompt",
+                    "source",
+                    "tool_name",
+                    "tool_use_id",
+                    "tool_input",
+                },
+                {"title", "message", "raw_notification_type", "error_details"},
+                id="permission",
+            ),
+            pytest.param(
+                SessionStartEvent,
+                {
+                    "raw",
+                    "provider",
+                    "event_name",
+                    "raw_event_name",
+                    "model",
+                    "session_id",
+                    "cwd",
+                    "transcript_path",
+                    "permission_mode",
+                },
+                {"title", "message", "tool_name", "tool_input", "error_details"},
+                id="session-start",
+            ),
+            pytest.param(
+                UserPromptSubmitEvent,
+                {
+                    "raw",
+                    "provider",
+                    "event_name",
+                    "raw_event_name",
+                    "model",
+                    "session_id",
+                    "cwd",
+                    "transcript_path",
+                    "prompt",
+                    "source",
+                    "last_assistant_message",
+                },
+                {"title", "message", "tool_name", "tool_input", "error_details"},
+                id="user-prompt-submit",
+            ),
+            pytest.param(
+                PostToolUseEvent,
+                {
+                    "raw",
+                    "provider",
+                    "event_name",
+                    "raw_event_name",
+                    "model",
+                    "session_id",
+                    "cwd",
+                    "transcript_path",
+                    "tool_name",
+                    "tool_use_id",
+                    "tool_input",
+                    "last_assistant_message",
+                },
+                {"title", "message", "permission_mode", "error_details"},
+                id="post-tool-use",
+            ),
+            pytest.param(
+                StopEvent,
+                {
+                    "raw",
+                    "provider",
+                    "event_name",
+                    "raw_event_name",
+                    "model",
+                    "session_id",
+                    "cwd",
+                    "transcript_path",
+                    "last_assistant_message",
+                },
+                {"title", "message", "tool_name", "tool_input", "error_details"},
+                id="stop",
+            ),
+            pytest.param(
+                StopFailureEvent,
+                {
+                    "raw",
+                    "provider",
+                    "event_name",
+                    "raw_event_name",
+                    "model",
+                    "session_id",
+                    "cwd",
+                    "transcript_path",
+                    "last_assistant_message",
+                    "error_details",
+                    "error",
+                },
+                {"title", "message", "tool_name", "tool_input", "permission_mode"},
+                id="stop-failure",
+            ),
+        ],
+    )
+    def test_route_event_models_expose_dedicated_fields(
+        self,
+        event_model: type[object],
+        expected_fields: set[str],
+        unexpected_fields: set[str],
+    ) -> None:
+        field_names = {field.name for field in fields(event_model)}
+
+        assert expected_fields <= field_names
+        assert unexpected_fields.isdisjoint(field_names)
+
     def test_router_middleware_wraps_dispatch(self) -> None:
         hook = AgentHook(fallback_to_default_processor=False)
         seen_tools: list[str] = []
@@ -699,6 +852,36 @@ class TestAgentHook:
                 },
             },
         }
+
+    def test_notification_decorator_injects_notification_specific_schema(self) -> None:
+        hook = AgentHook(fallback_to_default_processor=False)
+
+        @hook.notification()
+        def notification_callback(hook_event: NotificationEvent) -> HookResponse:
+            assert hook_event.title == "Build complete"
+            assert hook_event.message == "All checks passed."
+            assert hook_event.raw_notification_type == "task_completed"
+            assert not hasattr(hook_event, "tool_name")
+            return HookResponse(suppress_output=False)
+
+        input_data = read_hook_input(
+            StringIO(
+                """
+                {
+                  "hook_event_name": "Notification",
+                  "notification_type": "task_completed",
+                  "title": "Build complete",
+                  "message": "All checks passed.",
+                  "tool_name": "Bash",
+                  "tool_input": {"command": "pytest"}
+                }
+                """
+            )
+        )
+
+        result = hook.dispatch(input_data, FakeTransport())
+
+        assert result.response.as_payload() == {"suppressOutput": False}
 
     def test_permission_decorator_supports_partial_signature_injection(self) -> None:
         hook = AgentHook()

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
 from inspect import Parameter, signature
 from typing import IO, TypeAlias, TypeVar, get_type_hints
 
@@ -16,51 +16,95 @@ from agent_hooks.models import (
     HookProcessingResult,
     HookResponse,
     HookResponseProtocol,
+    JsonObject,
+    ToolInput,
 )
 from agent_hooks.processor import process_hook
 from agent_hooks.providers import get_provider_middlewares
 from agent_hooks.transport import DisplayTransport
 
-EventModelT = TypeVar("EventModelT", bound=HookPayload)
+
+@dataclass(frozen=True)
+class HookEvent:
+    """Represent the common fields exposed to all routed hook handlers."""
+
+    raw: JsonObject = field(default_factory=dict)
+    provider: HookProvider = HookProvider.CLAUDE_CODE
+    event_name: HookEventName = HookEventName.UNKNOWN
+    raw_event_name: str = ""
+    model: str = ""
+    session_id: str = ""
+    cwd: str = ""
+    transcript_path: str = ""
+
+
+@dataclass(frozen=True)
+class NotificationEvent(HookEvent):
+    """Represent the schema injected into ``@app.notification()`` handlers."""
+
+    raw_notification_type: str = ""
+    title: str = ""
+    message: str = ""
+
+
+@dataclass(frozen=True)
+class PermissionRequestEvent(HookEvent):
+    """Represent the schema injected into ``@app.permission()`` handlers."""
+
+    permission_mode: str = ""
+    prompt: str = ""
+    source: str = ""
+    tool_name: str = ""
+    tool_use_id: str = ""
+    tool_input: ToolInput = field(default_factory=ToolInput)
+
+
+@dataclass(frozen=True)
+class SessionStartEvent(HookEvent):
+    """Represent the schema injected into ``@app.session_start()`` handlers."""
+
+    permission_mode: str = ""
+
+
+@dataclass(frozen=True)
+class UserPromptSubmitEvent(HookEvent):
+    """Represent the schema injected into ``@app.user_prompt_submit()`` handlers."""
+
+    prompt: str = ""
+    source: str = ""
+    last_assistant_message: str = ""
+
+
+@dataclass(frozen=True)
+class PostToolUseEvent(HookEvent):
+    """Represent the schema injected into ``@app.post_tool_use()`` handlers."""
+
+    tool_name: str = ""
+    tool_use_id: str = ""
+    tool_input: ToolInput = field(default_factory=ToolInput)
+    last_assistant_message: str = ""
+
+
+@dataclass(frozen=True)
+class StopEvent(HookEvent):
+    """Represent the schema injected into ``@app.stop()`` handlers."""
+
+    last_assistant_message: str = ""
+
+
+@dataclass(frozen=True)
+class StopFailureEvent(StopEvent):
+    """Represent the schema injected into ``@app.stop_failure()`` handlers."""
+
+    error_details: str = ""
+    error: str = ""
+
+
+EventModelT = TypeVar("EventModelT", bound=HookEvent)
 HandlerResult: TypeAlias = HookProcessingResult | HookResponseProtocol | None
 RouteHandler: TypeAlias = Callable[..., HandlerResult]
 RouteDecorator: TypeAlias = Callable[[RouteHandler], RouteHandler]
 MiddlewareDecorator: TypeAlias = Callable[[HookMiddleware], HookMiddleware]
-
-
-@dataclass(frozen=True)
-class NotificationEvent(HookPayload):
-    """Represent a normalized notification hook payload."""
-
-
-@dataclass(frozen=True)
-class PermissionRequestEvent(HookPayload):
-    """Represent a normalized permission request hook payload."""
-
-
-@dataclass(frozen=True)
-class SessionStartEvent(HookPayload):
-    """Represent a normalized session-start hook payload."""
-
-
-@dataclass(frozen=True)
-class UserPromptSubmitEvent(HookPayload):
-    """Represent a normalized user-prompt-submit hook payload."""
-
-
-@dataclass(frozen=True)
-class PostToolUseEvent(HookPayload):
-    """Represent a normalized post-tool-use hook payload."""
-
-
-@dataclass(frozen=True)
-class StopEvent(HookPayload):
-    """Represent a normalized stop hook payload."""
-
-
-@dataclass(frozen=True)
-class StopFailureEvent(HookPayload):
-    """Represent a normalized failed-stop hook payload."""
 
 
 @dataclass(frozen=True)
@@ -105,7 +149,7 @@ class CallbackRequest:
 class _RouteDefinition:
     """Store one registered callback route."""
 
-    event_factory: Callable[[HookPayload], HookPayload]
+    event_factory: Callable[[HookPayload], HookEvent]
     handler: RouteHandler
     injected_arguments: tuple[_InjectedArgument, ...]
 
@@ -313,7 +357,7 @@ def _coerce_route_result(result: HandlerResult) -> HookProcessingResult:
 
 
 def _build_event_model(payload: HookPayload, event_model: type[EventModelT]) -> EventModelT:
-    """Clone a base payload into a typed event model.
+    """Build one routed event model from the normalized payload.
 
     :param payload: Parsed base payload.
     :type payload: HookPayload
@@ -321,7 +365,7 @@ def _build_event_model(payload: HookPayload, event_model: type[EventModelT]) -> 
     :type event_model: type[EventModelT]
     :return: Typed event model instance.
     """
-    payload_values = {field.name: getattr(payload, field.name) for field in fields(HookPayload)}
+    payload_values = {field.name: getattr(payload, field.name) for field in fields(event_model)}
     return event_model(**payload_values)
 
 
@@ -343,7 +387,7 @@ def _empty_processing_result(*, error: str | None = None) -> HookProcessingResul
 def _call_route_handler(
     route: _RouteDefinition,
     request: CallbackRequest,
-    hook_event: HookPayload,
+    hook_event: HookEvent,
     transport: DisplayTransport,
 ) -> HandlerResult:
     """Invoke a route handler with annotation-based parameter injection.
@@ -353,7 +397,7 @@ def _call_route_handler(
     :param request: Callback request wrapper.
     :type request: CallbackRequest
     :param hook_event: Typed event model for this route.
-    :type hook_event: HookPayload
+    :type hook_event: HookEvent
     :param transport: Display transport used by the route handler.
     :type transport: DisplayTransport
     :return: Route handler response, or ``None``.
@@ -368,7 +412,7 @@ def _call_route_handler(
 def _resolve_injected_value(
     argument: _InjectedArgument,
     request: CallbackRequest,
-    hook_event: HookPayload,
+    hook_event: HookEvent,
     transport: DisplayTransport,
 ) -> object:
     """Resolve one injected argument value for a route handler.
@@ -378,7 +422,7 @@ def _resolve_injected_value(
     :param request: Callback request wrapper.
     :type request: CallbackRequest
     :param hook_event: Typed event model.
-    :type hook_event: HookPayload
+    :type hook_event: HookEvent
     :param transport: Display transport used by the route handler.
     :type transport: DisplayTransport
     :return: Injected value for the handler parameter.
@@ -392,14 +436,14 @@ def _resolve_injected_value(
 
 def _build_injected_arguments(
     handler: RouteHandler,
-    event_model: type[HookPayload],
+    event_model: type[HookEvent],
 ) -> tuple[_InjectedArgument, ...]:
     """Build the injection plan for one route handler.
 
     :param handler: Handler registered for the route.
     :type handler: RouteHandler
     :param event_model: Event model allowed for this route.
-    :type event_model: type[HookPayload]
+    :type event_model: type[HookEvent]
     :return: Injected argument definitions in declaration order.
     :raises ValueError: If the handler has an unsupported required parameter.
     """
@@ -427,7 +471,7 @@ def _build_injected_argument(
     handler: RouteHandler,
     parameter: Parameter,
     annotation: object,
-    event_model: type[HookPayload],
+    event_model: type[HookEvent],
 ) -> _InjectedArgument | None:
     """Return the injected argument definition for one handler parameter.
 
@@ -438,7 +482,7 @@ def _build_injected_argument(
     :param annotation: Resolved parameter annotation.
     :type annotation: object
     :param event_model: Event model allowed for this route.
-    :type event_model: type[HookPayload]
+    :type event_model: type[HookEvent]
     :return: Injected argument definition, or ``None`` when unsupported.
     :raises ValueError: If an injectable parameter is positional-only.
     """
@@ -464,7 +508,7 @@ def _build_injected_argument(
 def _unsupported_parameter_message(
     handler: RouteHandler,
     parameter: Parameter,
-    event_model: type[HookPayload],
+    event_model: type[HookEvent],
 ) -> str:
     """Build the validation error for an unsupported required parameter.
 
@@ -473,7 +517,7 @@ def _unsupported_parameter_message(
     :param parameter: Required parameter that cannot be injected.
     :type parameter: Parameter
     :param event_model: Event model allowed for this route.
-    :type event_model: type[HookPayload]
+    :type event_model: type[HookEvent]
     :return: User-facing validation message.
     """
     return (

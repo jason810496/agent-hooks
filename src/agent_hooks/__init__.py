@@ -9,6 +9,7 @@ from agent_hooks.processor import build_permission_response
 from agent_hooks.router import (
     AgentHook,
     CallbackRequest,
+    HookEvent,
     NotificationEvent,
     PermissionRequestEvent,
     PostToolUseEvent,
@@ -23,6 +24,7 @@ __all__ = [
     "AgentHook",
     "AppleScriptDialogResponse",
     "CallbackRequest",
+    "HookEvent",
     "HookProvider",
     "HookResponse",
     "HookResponseProtocol",
