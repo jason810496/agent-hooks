@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from agent_hooks.enums import DialogButton, HookEventName, TransportStatus
 from agent_hooks.models import (
@@ -15,13 +15,15 @@ from agent_hooks.models import (
 )
 from agent_hooks.presentation import build_notification, build_permission_dialog
 from agent_hooks.providers import build_permission_response as build_provider_permission_response
-from agent_hooks.router import (
-    NotificationEvent,
-    PermissionRequestEvent,
-    StopEvent,
-    StopFailureEvent,
-)
 from agent_hooks.transport import DisplayTransport
+
+if TYPE_CHECKING:
+    from agent_hooks.router import (
+        NotificationEvent,
+        PermissionRequestEvent,
+        StopEvent,
+        StopFailureEvent,
+    )
 
 DEFAULT_HOOK_RESPONSE = HookResponse()
 

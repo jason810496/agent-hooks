@@ -1232,6 +1232,39 @@ class TestRunCallback:
         assert exit_code == 0
         assert json.loads(stdout.getvalue()) == {}
 
+    def test_run_callback_supports_codex_stop_event(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        stdin = StringIO(
+            """
+            {
+              "hook_event_name": "Stop",
+              "cwd": "/tmp/project",
+              "last_assistant_message": "Done.",
+              "model": "gpt-5.4",
+              "permission_mode": "default",
+              "session_id": "session-1",
+              "stop_hook_active": false,
+              "transcript_path": null,
+              "turn_id": "turn-1"
+            }
+            """
+        )
+        stdout = StringIO()
+        transport = FakeTransport()
+
+        exit_code = run_callback(
+            stdin=stdin,
+            stdout=stdout,
+            runtime_config=build_runtime_config(tmp_path, provider=HookProvider.CODEX),
+            transport=transport,
+        )
+
+        assert exit_code == 0
+        assert transport.notification_calls == 1
+        assert json.loads(stdout.getvalue()) == {}
+
     def test_run_callback_codex_denial_renders_pre_tool_use_decision(
         self,
         tmp_path: Path,
