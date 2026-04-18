@@ -1,0 +1,15 @@
+{
+  "hook_event_name": "PostToolUse",
+  "cwd": ".",
+  "model": "gpt-5.4",
+  "permission_mode": "default",
+  "session_id": "session-1",
+  "tool_input": {
+    "command": "git diff --stat"
+  },
+  "tool_name": "Bash",
+  "tool_use_id": "tool-3",
+  "last_assistant_message": "I inspected the diff and found one changed file.",
+  "transcript_path": "./logs/transcript.jsonl",
+  "turn_id": "turn-4"
+}

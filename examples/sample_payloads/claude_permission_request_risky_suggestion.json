@@ -1,0 +1,21 @@
+{
+  "hook_event_name": "PermissionRequest",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "git status"
+  },
+  "permission_mode": "default",
+  "session_id": "claude-session-3",
+  "cwd": ".",
+  "permission_suggestions": [
+    {
+      "id": "suggestion-risky",
+      "rules": [
+        {
+          "toolName": "Bash",
+          "ruleContent": "git *"
+        }
+      ]
+    }
+  ]
+}

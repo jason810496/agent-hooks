@@ -1,0 +1,10 @@
+{
+  "hook_event_name": "PermissionRequest",
+  "tool_name": "Read",
+  "tool_input": {
+    "file_path": "../secrets.txt"
+  },
+  "permission_mode": "default",
+  "session_id": "claude-session-2",
+  "cwd": "."
+}

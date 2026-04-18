@@ -1,0 +1,7 @@
+{
+  "hook_event_name": "Stop",
+  "model": "claude-sonnet-4",
+  "session_id": "claude-session-6",
+  "cwd": ".",
+  "last_assistant_message": "Finished implementing the requested change."
+}

@@ -1,0 +1,8 @@
+{
+  "hook_event_name": "Notification",
+  "notification_type": "permission_prompt",
+  "title": "Permission request pending",
+  "message": "Claude needs a local decision before it can continue.",
+  "session_id": "claude-session-5",
+  "cwd": "."
+}

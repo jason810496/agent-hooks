@@ -1,0 +1,12 @@
+{
+  "hook_event_name": "UserPromptSubmit",
+  "cwd": ".",
+  "model": "gpt-5.4",
+  "permission_mode": "default",
+  "prompt": "Refactor the session journal example to include a tool duration field.",
+  "session_id": "session-1",
+  "source": "user",
+  "last_assistant_message": "Ready for your next instruction.",
+  "transcript_path": "./logs/transcript.jsonl",
+  "turn_id": "turn-2"
+}

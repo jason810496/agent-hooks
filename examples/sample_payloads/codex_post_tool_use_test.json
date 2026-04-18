@@ -1,0 +1,15 @@
+{
+  "hook_event_name": "PostToolUse",
+  "cwd": ".",
+  "model": "gpt-5.4",
+  "permission_mode": "default",
+  "session_id": "session-4",
+  "tool_input": {
+    "command": "uv run pytest tests/test_examples.py"
+  },
+  "tool_name": "Bash",
+  "tool_use_id": "tool-6",
+  "last_assistant_message": "I ran the focused example test suite.",
+  "transcript_path": "./logs/transcript.jsonl",
+  "turn_id": "turn-8"
+}

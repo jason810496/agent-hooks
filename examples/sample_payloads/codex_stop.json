@@ -1,0 +1,10 @@
+{
+  "hook_event_name": "Stop",
+  "cwd": ".",
+  "model": "gpt-5.4",
+  "permission_mode": "default",
+  "session_id": "session-1",
+  "last_assistant_message": "Implemented the change and verified the examples load correctly.",
+  "transcript_path": "./logs/transcript.jsonl",
+  "turn_id": "turn-5"
+}

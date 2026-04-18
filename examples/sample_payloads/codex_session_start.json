@@ -1,0 +1,8 @@
+{
+  "hook_event_name": "SessionStart",
+  "cwd": ".",
+  "model": "gpt-5.4",
+  "permission_mode": "default",
+  "session_id": "session-1",
+  "transcript_path": "./logs/transcript.jsonl"
+}

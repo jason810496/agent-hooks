@@ -1,0 +1,9 @@
+{
+  "hook_event_name": "StopFailure",
+  "model": "claude-sonnet-4",
+  "session_id": "claude-session-7",
+  "cwd": ".",
+  "last_assistant_message": "I ran into a problem before stopping.",
+  "error": "Tool invocation failed",
+  "error_details": "pytest exited with status 2."
+}
