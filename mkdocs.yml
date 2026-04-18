@@ -3,6 +3,8 @@ site_description: Local callback framework and macOS-ready hook CLI for Claude C
 repo_url: https://github.com/jason810496/agent-hooks
 repo_name: jason810496/agent-hooks
 site_url: https://jason810496.github.io/agent-hooks/
+remote_branch: gh-pages
+strict: true
 
 theme:
   name: material
@@ -40,6 +42,12 @@ extra_css:
 
 plugins:
   - search
+  - mike:
+      alias_type: redirect
+
+extra:
+  version:
+    provider: mike
 
 markdown_extensions:
   - admonition
