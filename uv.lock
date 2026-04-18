@@ -3,12 +3,12 @@ revision = 3
 requires-python = ">=3.10"
 
 [options]
-exclude-newer = "2026-04-11T13:29:40.882395Z"
+exclude-newer = "2026-04-11T14:17:38.694872Z"
 exclude-newer-span = "P7D"
 
 [[package]]
 name = "agent-hooks"
-version = "0.2.0rc1"
+version = "0.1.0rc3"
 source = { editable = "." }
 
 [package.dev-dependencies]

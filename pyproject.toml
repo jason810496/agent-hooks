@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agent-hooks"
-version = "0.1.0rc2"
+version = "0.1.0rc3"
 description = "One local callback layer for Claude Code and Codex: a macOS-ready CLI for native permission dialogs and notifications, plus a FastAPI-like Python framework"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -14,6 +14,11 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
 ]
+
+[project.urls]
+Documentation = "https://www.zhu424.dev/agent-hooks/latest/"
+Homepage = "https://www.zhu424.dev/agent-hooks/latest/"
+Source = "https://github.com/jason810496/agent-hooks"
 
 [project.scripts]
 agent-hooks = "agent_hooks.__main__:main"
