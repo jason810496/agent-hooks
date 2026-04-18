@@ -61,11 +61,20 @@ jobs:
           print-hash: true
 
       - name: Create GitHub prerelease
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
-        with:
-          tag_name: ${{ github.ref_name }}
-          name: Release Candidate ${{ github.ref_name }}
-          prerelease: true
-          generate_release_notes: true
-          files: |
-            dist/*
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=(dist/*.tar.gz dist/*.whl dist/*.publish.attestation)
+
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No release assets found in dist/." >&2
+            exit 1
+          fi
+
+          gh release create "${GITHUB_REF_NAME}" "${files[@]}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "Release Candidate ${GITHUB_REF_NAME}" \
+            --generate-notes \
+            --prerelease

@@ -24,7 +24,7 @@ Examples:
 ## Required GitHub Configuration
 
 The workflows use [PyPI Trusted Publishing](https://docs.pypi.org/trusted-publishers/). No API token is required if the publishers are configured correctly.
-All third-party GitHub Actions in the release workflows are pinned to full commit SHAs, and the trailing comments record the human-readable release version that each SHA came from.
+All third-party GitHub Actions in the release workflows are pinned to full commit SHAs, and the trailing comments record the human-readable release version that each SHA came from. GitHub releases themselves are created with the built-in `gh release create` CLI so immutable releases follow GitHub's draft-upload-publish sequence when assets are attached.
 
 Create these GitHub environments:
 
@@ -105,7 +105,7 @@ After a local `mike deploy`, run `uv run --group docs mike serve` if you want to
    git push origin main --follow-tags
    ```
 
-6. GitHub Actions publishes the distributions to TestPyPI and creates a GitHub prerelease with the built artifacts attached.
+6. GitHub Actions publishes the distributions to TestPyPI and creates a GitHub prerelease with the built artifacts and publish attestations attached.
    The docs workflow also publishes versioned docs for `0.2.0rc1` and moves the `rc` docs alias.
 
 Use the TestPyPI install flow to validate the candidate in a clean environment before promoting it.
@@ -136,7 +136,7 @@ Use the TestPyPI install flow to validate the candidate in a clean environment b
    git push origin main --follow-tags
    ```
 
-6. GitHub Actions publishes the package to PyPI and creates the GitHub release with release notes and distribution artifacts.
+6. GitHub Actions publishes the package to PyPI and creates the GitHub release with release notes, distribution artifacts, and publish attestations attached.
    The docs workflow also publishes immutable versioned docs for `0.2.0` while keeping `latest` reserved for the moving docs built from `main`.
 
 ## CI Validation Rules

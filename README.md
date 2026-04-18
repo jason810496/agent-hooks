@@ -1,7 +1,7 @@
 # Agent Hooks
 
 <p align="center">
-  <img src="docs/assets/agent-hooks-landing.svg" alt="Agent Hooks landing graphic" width="100%">
+  <img src="https://www.zhu424.dev/agent-hooks/latest/assets/agent-hooks-landing.svg" alt="Agent Hooks landing graphic" width="100%">
 </p>
 
 **No more swipe-and-sweep context switching for multi-session AI coding.**
@@ -12,13 +12,13 @@ Agent Hooks gives Claude Code and Codex one local callback layer: a macOS-ready 
 
 ### Claude Code
 
-![Claude Code permission request shown as a macOS dialog](docs/assets/agent-hooks-claude-code-example.png)
+![Claude Code permission request shown as a macOS dialog](https://www.zhu424.dev/agent-hooks/latest/assets/agent-hooks-claude-code-example.png)
 
 Claude Code permission requests become a native local dialog with `Deny`, `Allow Once`, and session-scoped `Always Allow`.
 
 ### Codex
 
-![Codex permission request shown as a macOS dialog](docs/assets/agent-hooks-codex-example.png)
+![Codex permission request shown as a macOS dialog](https://www.zhu424.dev/agent-hooks/latest/assets/agent-hooks-codex-example.png)
 
 Codex `PreToolUse` requests become the same local dialog flow, with `Deny`, `Allow Once`, and optional `execpolicy` short-circuiting for already-allowed Bash commands.
 
@@ -215,21 +215,21 @@ This is enough to route Codex Bash permission checks and stop notifications into
 
 Recommended setup: pass `--provider` explicitly in your provider config when you can. The built-in callback can infer providers from payload markers, but the explicit flag keeps local setup easier to reason about and debug.
 
-If you want to build your own hook app, start with [`AgentHook`](docs/framework/agenthook.md) and then run it with [`agent-hooks run`](docs/cli/custom-apps.md).
+If you want to build your own hook app, start with [`AgentHook`](https://www.zhu424.dev/agent-hooks/latest/framework/agenthook/) and then run it with [`agent-hooks run`](https://www.zhu424.dev/agent-hooks/latest/cli/custom-apps/).
 
 ## Docs Map
 
-- [Features](docs/features.md)
-- [macOS Quickstart](docs/getting-started/macos-quickstart.md)
-- [Built-in Callback](docs/cli/builtin-callback.md)
-- [AgentHook](docs/framework/agenthook.md)
-- [Architecture Overview](docs/architecture/overview.md)
-- [Claude Code](docs/providers/claude-code.md)
-- [Codex](docs/providers/codex.md)
+- [Features](https://www.zhu424.dev/agent-hooks/latest/features/)
+- [macOS Quickstart](https://www.zhu424.dev/agent-hooks/latest/getting-started/macos-quickstart/)
+- [Built-in Callback](https://www.zhu424.dev/agent-hooks/latest/cli/builtin-callback/)
+- [AgentHook](https://www.zhu424.dev/agent-hooks/latest/framework/agenthook/)
+- [Architecture Overview](https://www.zhu424.dev/agent-hooks/latest/architecture/overview/)
+- [Claude Code](https://www.zhu424.dev/agent-hooks/latest/providers/claude-code/)
+- [Codex](https://www.zhu424.dev/agent-hooks/latest/providers/codex/)
 
 ## Maintainers
 
-- [Release Process](scripts/release/README.md)
+- [Release Process](https://github.com/jason810496/agent-hooks/blob/main/scripts/release/README.md)
 
 ## Scope
 
@@ -242,4 +242,4 @@ The docs stay aligned with the current implementation. They describe supported b
 
 ## License
 
-Agent Hooks is licensed under Apache 2.0. See [LICENSE](LICENSE).
+Agent Hooks is licensed under Apache 2.0. See [LICENSE](https://github.com/jason810496/agent-hooks/blob/main/LICENSE).
