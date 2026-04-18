@@ -1,0 +1,43 @@
+<mxfile host="65bd71144e">
+    <diagram id="landing-hero" name="Landing Hero">
+        <mxGraphModel dx="630" dy="1348" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="900" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="3" value="" style="rounded=0;arcSize=6;whiteSpace=wrap;html=1;fillColor=#f4fbfb;strokeColor=#a5dbda;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="60" width="1630" height="780" as="geometry"/>
+                </mxCell>
+                <mxCell id="4" value="" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#2aa3a4;strokeColor=#2aa3a4;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="60" width="1630" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="5" value="LOCAL CALLBACK CLI + TYPED FRAMEWORK" style="rounded=1;arcSize=30;whiteSpace=wrap;html=1;fillColor=#e6fbfa;strokeColor=#b1e4e2;fontColor=#1e5d60;fontSize=18;fontStyle=1;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="110" y="580" width="460" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="6" value="Agent Hooks" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=92;fontStyle=1;fontColor=#08181b;" parent="1" vertex="1">
+                    <mxGeometry x="110" y="270" width="760" height="120" as="geometry"/>
+                </mxCell>
+                <mxCell id="7" value="Centralize local permission dialogs for Claude Code and Codex." style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=30;fontStyle=0;fontColor=#2f5d60;" parent="1" vertex="1">
+                    <mxGeometry x="110" y="410" width="870" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="8" value="Drop into AgentHook when you need typed, unified callback logic." style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=30;fontStyle=0;fontColor=#2f5d60;" parent="1" vertex="1">
+                    <mxGeometry x="110" y="460" width="930" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="13" value="" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#102e32;strokeColor=#246d70;" parent="1" vertex="1">
+                    <mxGeometry x="1045" y="170" width="470" height="470" as="geometry"/>
+                </mxCell>
+                <mxCell id="15" value="" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#f1fcfc;strokeColor=#b5e3e1;" parent="1" vertex="1">
+                    <mxGeometry x="930" y="670" width="690" height="110" as="geometry"/>
+                </mxCell>
+                <mxCell id="16" value="Permission prompts where you already are." style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=26;fontStyle=1;fontColor=#0d2f33;" parent="1" vertex="1">
+                    <mxGeometry x="1000" y="698" width="550" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="17" value="Native local UI first. Typed callback framework when you need more." style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=21;fontStyle=0;fontColor=#427276;" parent="1" vertex="1">
+                    <mxGeometry x="960" y="734" width="640" height="36" as="geometry"/>
+                </mxCell>
+                <mxCell id="21" value="" style="shape=image;verticalLabelPosition=bottom;labelBackgroundColor=default;verticalAlign=top;aspect=fixed;imageAspect=0;image=data:image/png,iVBORw0KGgoAAAANSUhEUgAAAJYAAACWCAYAAAA8AXHiAAAAAXNSR0IArs4c6QAAAERlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAA6ABAAMAAAABAAEAAKACAAQAAAABAAAAlqADAAQAAAABAAAAlgAAAAAXS0ggAAAEiklEQVR4Ae3dwY0VRxAGYLBMDHuytCIDLhAIciQGgjAmEotA8IUMrJU4EQMH0ONUYtQ1b7oLMbX7cWqmpuv1+/rXHFqzu48e+UeAAAECBAgQIECAAAECBAgQIECAAAECBAgQIECAAAECBAgQIEDgwQk8fnDf+Cd+4Zf/vv86av/x7m5U+n79y+fPw/qnf/5ut0+/Db+NAoEFAcFawDN1LCBYYxuVBQHBWsAzdSwgWGMblQUBwVrAM3UsIFhjG5UFgXbnIwvfdXnq07fvhudUl+bPbm+nPyM758rOuC4feMZzLk+s6SiYmAkIVqajNi0gWNN0JmYCgpXpqE0LCNY0nYmZgGBlOmrTAo4bfqDLXn354dbNf7Mjg/9f/zVtvXfMkR1H/KqjCE+sTTxcqBAQrApFPTYCgrUhcaFCQLAqFPXYCAjWhsSFCgHBqlDUYyMgWBsSFyoEBKtCUY+NgGBtSFyoEBCsCkU9NgKCtSFxoUJAsCoU9dgICNaGxIUKAcGqUNRjIzD9Ksem0wO4sPdKTfbaTPZqyx7dk5ub9JaVV3LSxgtFT6wFPFPHAoI1tlFZEBCsBTxTxwKCNbZRWRAQrAU8U8cCgjW2UVkQEKwFPFPHAs6xxjaHK9k5V3bGdfmg7JzrV/0I12GAMMETK2AY1gkIVp2lTkFAsAKGYZ2AYNVZ6hQEBCtgGNYJCFadpU5BQLAChmGdgGDVWeoUBAQrYBjWCQhWnaVOQUCwAoZhnYBg1VnqFAQEK2AY1gkIVp2lTkFAsAKGYZ2AYNVZ6hQEBCtgGNYJCFadpU5BQLAChmGdgGDVWeoUBAQrYBjWCQhWnaVOQUCwAoZhnYBg1VnqFAQEK2AY1gkIVp2lTkFAsAKGYZ2AYNVZ6hQEBCtgGNYJCFadpU5BQLAChmGdgGDVWeoUBAQrYBjWCQhWnaVOQUCwAoZhnYBg1VnqFAR+D+M2wz9evfmaLbbjL4PNvk/HmidWx11rsGbBarBJHZcoWB13rcGaBavBJnVcomB13LUGaxasBpvUcYmC1XHXGqy55TnWnuvTt++G51xn/MPce9+nY90Tq+OuNVizYDXYpI5LFKyOu9ZgzYLVYJM6LlGwOu5agzULVoNN6rjEe3nc8Oz2drwXyVHEZZLjiDHdkYon1hEt914tIFhXU7nxiIBgHdFy79UCgnU1lRuPCAjWES33Xi0gWFdTufGIgGAd0XLv1QL38hwr+/bpGddl4s45V9b7vw8fsnJae/7ixbD+aVg5b8ET67x703plgtV6+867eME67960Xplgtd6+8y5esM67N61XJlitt++8i3983qXNryz7KZ3d44bkYz/e3SXVvLT3ue//fHmv9sITK8+D6qSAYE3CmZYLCFbuozopIFiTcKblAoKV+6hOCgjWJJxpuYBg5T6qkwL38rWZ7Ee4vuz8xuUnNzeTlKZFAU+sqGFcJiBYZZQaRQHBihrGZQKCVUapURQQrKhhXCYgWGWUGhEgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBAg8MAFvgHPuFWNMQpodgAAAABJRU5ErkJggg==;" vertex="1" parent="1">
+                    <mxGeometry x="1106.25" y="231.25" width="347.5" height="347.5" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>
