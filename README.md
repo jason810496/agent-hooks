@@ -227,6 +227,10 @@ If you want to build your own hook app, start with [`AgentHook`](docs/framework/
 - [Claude Code](docs/providers/claude-code.md)
 - [Codex](docs/providers/codex.md)
 
+## Maintainers
+
+- [Release Process](scripts/release/README.md)
+
 ## Scope
 
 Agent Hooks currently supports only two providers:
