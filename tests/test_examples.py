@@ -1,15 +1,23 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from io import StringIO
 from pathlib import Path
+from typing import cast
 
 import pytest
 
 from agent_hooks.enums import AppleScriptInvocation, HookProvider, TransportStatus
-from agent_hooks.models import AppleScriptResult, DialogResult, HookInput
+from agent_hooks.models import (
+    AppleScriptResult,
+    DialogResult,
+    DialogSpec,
+    HookInput,
+    NotificationSpec,
+)
 from agent_hooks.parsing import read_hook_input
-from agent_hooks.runner import load_run_callback_target, render_hook_response
+from agent_hooks.runner import CallbackDispatcher, load_run_callback_target, render_hook_response
 
 ROOT = Path(__file__).resolve().parents[1]
 EXAMPLES_DIR = ROOT / "examples"
@@ -33,10 +41,10 @@ class FakeTransport:
     def __init__(self) -> None:
         self.notification_calls = 0
         self.dialog_calls = 0
-        self.notifications: list[object] = []
-        self.dialogs: list[object] = []
+        self.notifications: list[NotificationSpec] = []
+        self.dialogs: list[DialogSpec] = []
 
-    def send_notification(self, notification: object) -> AppleScriptResult:
+    def send_notification(self, notification: NotificationSpec) -> AppleScriptResult:
         self.notification_calls += 1
         self.notifications.append(notification)
         return AppleScriptResult(
@@ -44,7 +52,7 @@ class FakeTransport:
             invocation=AppleScriptInvocation.NOTIFICATION,
         )
 
-    def show_dialog(self, dialog: object) -> DialogResult:
+    def show_dialog(self, dialog: DialogSpec) -> DialogResult:
         self.dialog_calls += 1
         self.dialogs.append(dialog)
         return DialogResult(
@@ -57,21 +65,28 @@ class FakeTransport:
         )
 
 
-def build_input(payload: dict[str, object], provider: HookProvider) -> HookInput:
+def build_input(payload: Mapping[str, object], provider: HookProvider) -> HookInput:
     return read_hook_input(StringIO(json.dumps(payload)), provider=provider)
+
+
+def load_example_app(reference: str) -> CallbackDispatcher:
+    target = load_run_callback_target(reference, app_dir=EXAMPLES_DIR)
+    if isinstance(target, str) or not hasattr(target, "dispatch"):
+        raise TypeError(f"{reference} did not resolve to a dispatch-capable callback target.")
+    return cast(CallbackDispatcher, target)
 
 
 class TestExampleLoading:
     @pytest.mark.parametrize("reference", EXAMPLE_FILES, ids=EXAMPLE_FILES)
     def test_example_files_load_as_callback_targets(self, reference: str) -> None:
-        target = load_run_callback_target(reference, app_dir=EXAMPLES_DIR)
+        target = load_example_app(reference)
 
         assert hasattr(target, "dispatch")
 
 
 class TestExampleBehavior:
     def test_audit_exporter_writes_compact_record(self, tmp_path: Path) -> None:
-        app = load_run_callback_target("audit_exporter.py", app_dir=EXAMPLES_DIR)
+        app = load_example_app("audit_exporter.py")
         input_data = build_input(
             {
                 "hook_event_name": "Stop",
@@ -98,7 +113,7 @@ class TestExampleBehavior:
         assert transport.notification_calls == 1
 
     def test_branch_protection_guard_denies_push_to_main(self) -> None:
-        app = load_run_callback_target("branch_protection_guard.py", app_dir=EXAMPLES_DIR)
+        app = load_example_app("branch_protection_guard.py")
         input_data = build_input(
             {
                 "hook_event_name": "PreToolUse",
@@ -127,10 +142,7 @@ class TestExampleBehavior:
         assert rendered["hookSpecificOutput"]["permissionDecision"] == "deny"
 
     def test_claude_permission_suggestion_filter_keeps_only_safe_rules(self) -> None:
-        app = load_run_callback_target(
-            "claude_permission_suggestion_filter.py",
-            app_dir=EXAMPLES_DIR,
-        )
+        app = load_example_app("claude_permission_suggestion_filter.py")
         input_data = build_input(
             {
                 "hook_event_name": "PermissionRequest",
@@ -168,7 +180,7 @@ class TestExampleBehavior:
         assert [item["id"] for item in updated_permissions] == ["suggestion-safe"]
 
     def test_minimal_permission_allows_safe_codex_bash_command(self) -> None:
-        app = load_run_callback_target("minimal_permission.py", app_dir=EXAMPLES_DIR)
+        app = load_example_app("minimal_permission.py")
         input_data = build_input(
             {
                 "hook_event_name": "PreToolUse",
@@ -197,7 +209,7 @@ class TestExampleBehavior:
         assert rendered == {}
 
     def test_command_policy_middleware_denies_pipe_to_shell(self) -> None:
-        app = load_run_callback_target("command_policy_middleware.py", app_dir=EXAMPLES_DIR)
+        app = load_example_app("command_policy_middleware.py")
         input_data = build_input(
             {
                 "hook_event_name": "PreToolUse",
@@ -234,7 +246,7 @@ class TestExampleBehavior:
         }
 
     def test_repo_boundary_guard_denies_outside_repo_file_access(self, tmp_path: Path) -> None:
-        app = load_run_callback_target("repo_boundary_guard.py", app_dir=EXAMPLES_DIR)
+        app = load_example_app("repo_boundary_guard.py")
         project_root = tmp_path / "project"
         project_root.mkdir()
         input_data = build_input(
@@ -260,7 +272,7 @@ class TestExampleBehavior:
         assert rendered["hookSpecificOutput"]["decision"]["behavior"] == "deny"
 
     def test_session_journal_writes_jsonl_records(self, tmp_path: Path) -> None:
-        app = load_run_callback_target("codex_session_journal.py", app_dir=EXAMPLES_DIR)
+        app = load_example_app("codex_session_journal.py")
         transport = FakeTransport()
         payloads = (
             {
@@ -305,8 +317,10 @@ class TestExampleBehavior:
         assert len(journal_path.read_text(encoding="utf-8").splitlines()) == 3
 
     def test_repo_context_adds_session_start_context(self, tmp_path: Path) -> None:
-        app = load_run_callback_target("codex_repo_context.py", app_dir=EXAMPLES_DIR)
-        (tmp_path / "README.md").write_text("# Demo Project\n\nLocal instructions.\n", encoding="utf-8")
+        app = load_example_app("codex_repo_context.py")
+        (tmp_path / "README.md").write_text(
+            "# Demo Project\n\nLocal instructions.\n", encoding="utf-8"
+        )
         (tmp_path / "AGENTS.md").write_text("Follow the test instructions.\n", encoding="utf-8")
         input_data = build_input(
             {
@@ -334,7 +348,7 @@ class TestExampleBehavior:
         assert "README.md" in rendered["hookSpecificOutput"]["additionalContext"]
 
     def test_prompt_guard_blocks_unsafe_prompt(self) -> None:
-        app = load_run_callback_target("codex_prompt_guard.py", app_dir=EXAMPLES_DIR)
+        app = load_example_app("codex_prompt_guard.py")
         input_data = build_input(
             {
                 "hook_event_name": "UserPromptSubmit",
@@ -364,10 +378,7 @@ class TestExampleBehavior:
         assert "blocked phrase" in rendered["reason"]
 
     def test_sensitive_data_exfiltration_guard_denies_remote_copy_of_env_file(self) -> None:
-        app = load_run_callback_target(
-            "sensitive_data_exfiltration_guard.py",
-            app_dir=EXAMPLES_DIR,
-        )
+        app = load_example_app("sensitive_data_exfiltration_guard.py")
         input_data = build_input(
             {
                 "hook_event_name": "PreToolUse",
@@ -396,7 +407,7 @@ class TestExampleBehavior:
         assert rendered["hookSpecificOutput"]["permissionDecision"] == "deny"
 
     def test_stop_notifier_sends_custom_failure_notification(self) -> None:
-        app = load_run_callback_target("stop_notifier.py", app_dir=EXAMPLES_DIR)
+        app = load_example_app("stop_notifier.py")
         input_data = build_input(
             {
                 "hook_event_name": "StopFailure",
@@ -415,10 +426,11 @@ class TestExampleBehavior:
 
         assert transport.notification_calls == 1
         assert transport.notifications[-1].title == "Claude Code stopped with an error"
+        assert result.display is not None
         assert result.display.title == "Claude Code stopped with an error"
 
     def test_test_before_stop_blocks_until_tests_run(self, tmp_path: Path) -> None:
-        app = load_run_callback_target("codex_test_before_stop.py", app_dir=EXAMPLES_DIR)
+        app = load_example_app("codex_test_before_stop.py")
         session_id = "session-4"
         stop_input = build_input(
             {

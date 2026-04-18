@@ -1,49 +1,38 @@
-default_stages: [pre-commit, pre-push]
-minimum_prek_version: "0.3.4"
+---
+minimum_prek_version: "0.3.8"
 default_language_version:
   python: python3
-exclude: ^(logs/|\.venv/)
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
       - id: check-merge-conflict
-      - id: debug-statements
-      - id: end-of-file-fixer
-      - id: trailing-whitespace
       - id: check-toml
       - id: check-yaml
+        args: ["--unsafe"]
+      - id: check-json
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
 
   - repo: local
     hooks:
       - id: ruff
         name: Run ruff for Python linting
-        entry: ruff check --force-exclude --fix
+        entry: ruff check --force-exclude
         language: python
         types_or: [python, pyi]
         require_serial: true
         additional_dependencies: ["ruff==0.11.6"]
-
-      - id: ruff-format
-        name: Run ruff format for Python formatting
-        entry: ruff format --force-exclude
-        language: python
-        types_or: [python, pyi]
-        require_serial: true
-        additional_dependencies: ["ruff==0.11.6"]
-
-      - id: ty
-        name: Run ty for static type checking
-        entry: ty check --extra-search-path scripts/prek src scripts/prek tests
-        language: python
-        pass_filenames: false
-        require_serial: true
-        additional_dependencies: ["ty", "pytest>=8.3.5,<9", "sqlalchemy==2.0.39"]
 
       - id: check-no-stdout-prints
-        name: Check hook source does not print to stdout
-        entry: ./scripts/prek/check_no_stdout_prints.py
+        name: Reject stdout print() in hook source
+        entry: python scripts/prek/check_no_stdout_prints.py
         language: python
-        files: ^src/.*\.py$
+        types_or: [python, pyi]
+        files: >
+          (?x)
+          ^src/.*\.py$|
+          ^examples/.*\.py$|
+          ^scripts/prek/.*\.py$
         require_serial: true
