@@ -2,6 +2,9 @@
 
 Agent Hooks is configured primarily through CLI flags and environment variables.
 
+!!! tip "Recommended config split"
+    **Use CLI flags for per-caller choices** like `--provider`, and **use environment variables for local defaults** like log paths, project root, AppleScript behavior, and Codex policy settings.
+
 ## Provider Selection
 
 - `--provider claude-code|codex`
@@ -28,6 +31,9 @@ Accepted false values:
 - `no`
 - `off`
 
+!!! note "Testing mode"
+    Set `AGENT_HOOK_DISABLE_OSASCRIPT=1` when you want to validate callback behavior without opening macOS dialogs or notifications.
+
 ## Project Root And Paths
 
 - `AGENT_HOOK_PROJECT_ROOT`
@@ -37,6 +43,9 @@ Accepted false values:
 - `AGENT_HOOK_RESPONSE_AUDIT_LOG_PATH`
 
 Relative paths are resolved from `AGENT_HOOK_PROJECT_ROOT`. If you do not set it, the package default project root is used.
+
+!!! note "Path resolution"
+    **Relative log paths are anchored to `AGENT_HOOK_PROJECT_ROOT`.** If your logs end up somewhere unexpected, this is usually the first setting to check.
 
 ## App Log Controls
 
@@ -68,6 +77,9 @@ These act as fallbacks when a log-specific max-bytes or backup-count env var is 
 - `AGENT_HOOK_CODEX_EXECPOLICY_RULES`
 
 The current default model is `5.4-mini` and the default rules path is `~/.codex/rules/default.rules`.
+
+!!! info "Important for Codex users"
+    These settings control the **pre-check that can suppress repeated permission dialogs for already-allowed Bash commands**. If the behavior seems off, verify both the model and the rules path.
 
 ## Recommended Pattern
 

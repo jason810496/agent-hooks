@@ -1,185 +1,240 @@
 # Agent Hooks
 
-No more swipe-and-sweep context switching for multi-session AI coding.
+<p align="center">
+  <img src="docs/assets/agent-hooks-landing.svg" alt="Agent Hooks landing graphic" width="100%">
+</p>
 
-`agent-hooks` is a local callback layer for Claude Code and Codex. It ships with a macOS-ready callback CLI for permission dialogs and notifications, plus a FastAPI-like `AgentHook` framework for building your own hook apps without carrying a runtime dependency stack.
+**No more swipe-and-sweep context switching for multi-session AI coding.**
 
-- One callback command for both Claude Code and Codex
-- Out-of-the-box macOS UX via the system `osascript` binary
-- Zero runtime Python package dependencies
-- Zero extra macOS dependencies beyond what ships with macOS
-- FastAPI-like decorator API for hook callback programming
-- Open source under Apache 2.0
+Agent Hooks gives Claude Code and Codex one local callback layer: a macOS-ready CLI for native permission dialogs and notifications, plus a FastAPI-like framework when you want to own the policy in Python.
 
-## Why Agent Hooks
+## What It Looks Like
 
-When you run multiple AI coding sessions, the real friction is often local callback handling:
+### Claude Code
 
-- repeated permission prompts across sessions
-- losing focus while jumping between tool UIs and terminals
-- provider-specific hook payloads and response formats
-- glue code that should be framework work, not app work
+![Claude Code permission request shown as a macOS dialog](docs/assets/agent-hooks-claude-code-example.png)
 
-Agent Hooks is the pain-killer for that loop. It gives you one local callback entrypoint, one normalized event model, one logging story, and one place to customize behavior when the built-in app is not enough.
+Claude Code permission requests become a native local dialog with `Deny`, `Allow Once`, and session-scoped `Always Allow`.
 
-## What Ships
+### Codex
 
-`agent-hooks` is really two products in one package:
+![Codex permission request shown as a macOS dialog](docs/assets/agent-hooks-codex-example.png)
 
-1. A built-in callback CLI for macOS. Install it with `uv tool install agent-hooks`, point your provider at `agent-hooks callback`, and get local permission dialogs and notifications immediately.
-2. A FastAPI-like callback framework centered on `AgentHook`. Use decorator routes such as `@app.permission()` and `@app.stop()` to build your own custom hook app, then run it with `agent-hooks run`.
+Codex `PreToolUse` requests become the same local dialog flow, with `Deny`, `Allow Once`, and optional `execpolicy` short-circuiting for already-allowed Bash commands.
 
-## 60-Second Quickstart
+### `AgentHook` Framework
 
-Install the tool:
+```python
+from agent_hooks import AgentHook, PermissionRequestEvent, build_permission_response
+from agent_hooks.enums import DialogButton
 
-```bash
-uv tool install agent-hooks
+app = AgentHook()
+
+
+@app.permission()
+def permission_handler(hook_event: PermissionRequestEvent):
+    if hook_event.tool_name == "Bash":
+        return build_permission_response(DialogButton.ALLOW_ONCE, hook_event)
+    return build_permission_response(DialogButton.DENY, hook_event)
 ```
-
-Point your provider's hook callback command at the built-in app:
-
-```bash
-agent-hooks callback --provider claude-code
-```
-
-```bash
-agent-hooks callback --provider codex
-```
-
-You can also choose the provider with `AGENT_HOOK_PROVIDER`:
-
-```bash
-AGENT_HOOK_PROVIDER=codex agent-hooks callback
-```
-
-On macOS, the built-in app uses the system `osascript` binary to show dialogs and notifications. There is no extra native dependency or background service to install.
-
-To run your own hook app instead of the built-in one:
 
 ```bash
 agent-hooks run my_hooks:app --app-dir . --provider codex
 ```
 
-## Features
+One typed handler can serve Claude Code `PermissionRequest` and Codex `PreToolUse` without writing provider-specific schema glue.
 
-- Support for both `claude-code` and `codex`
-- Provider auto-detection from incoming payloads when the payload carries provider-specific markers
-- Provider-neutral routing where Claude `PermissionRequest` and Codex `PreToolUse` both map to `@app.permission()`
-- Typed event injection for notification, permission, session start, user prompt submit, post-tool-use, stop, and stop-failure handlers
-- Pluggable middleware with provider middleware and app middleware in the same dispatch chain
-- Built-in rotating app logs plus raw input and rendered response audit logs
-- Built-in Codex `execpolicy` shortcut so already-allowed Bash commands can skip the dialog round-trip
+## Why It Exists
 
-## Out-of-the-Box CLI
+Multi-session AI coding tends to break flow in the same places:
 
-The built-in callback target is `agent_hooks.cli_app.app:app`, and the CLI exposes it as:
+- permission prompts appear in separate sessions
+- provider payloads differ
+- local hook responses need provider-specific wire shapes
+- stop and notification events want OS-local behavior, not more terminal noise
+
+Agent Hooks normalizes those problems into one package.
+
+## Two Products In One Package
+
+Use `agent-hooks callback` when you want a working local callback target immediately.
+
+Use `AgentHook` when you need to define custom permission, notification, or stop behavior in Python.
+
+### Built-in CLI
+
+The built-in app is exposed as `agent_hooks.cli_app.app:app` and run through:
 
 ```bash
 agent-hooks callback
 ```
 
-`agent-hooks callback` is designed for the "just make it work" path:
+This path is designed for local-first usage on macOS:
 
-- Claude Code gets notification, permission, stop, and stop-failure handling
-- Codex gets pre-tool-use permission handling and stop notifications
-- Codex `SessionStart`, `UserPromptSubmit`, and `PostToolUse` are already wired in the built-in app and currently return empty responses
-- All built-in behavior stays local and writes logs under `logs/` by default
+- permission dialogs
+- notifications
+- provider-aware response rendering
+- rotating logs and audit logs
 
-For Codex Bash permission requests, Agent Hooks can auto-allow commands that already match a local rules file by running:
+### Framework
 
-```bash
-codex execpolicy check -c model="5.4-mini" --rules ~/.codex/rules/default.rules -- <command ...>
-```
+The framework is centered on `AgentHook`, a decorator-based router that looks and feels closer to FastAPI than to handwritten hook glue.
 
-If the top-level `decision` is `allow`, the built-in permission dialog is skipped. The current implementation supports:
+You register handlers with route decorators such as:
 
-- `AGENT_HOOK_CODEX_EXECPOLICY_MODEL`
-- `AGENT_HOOK_CODEX_EXECPOLICY_RULES`
+- `@app.notification()`
+- `@app.permission()`
+- `@app.session_start()`
+- `@app.user_prompt_submit()`
+- `@app.post_tool_use()`
+- `@app.stop()`
+- `@app.stop_failure()`
 
-## `AgentHook` Callback Framework
+## Provider-Neutral Core
 
-The framework side is centered on the `AgentHook` router:
+Internally, incoming payloads are normalized into shared models before dispatch. That gives you one app-level programming model even when providers use different raw event names.
 
-```python
-from __future__ import annotations
+Examples:
 
-from agent_hooks import AgentHook, HookProvider, PermissionRequestEvent, build_permission_response
-from agent_hooks.enums import DialogButton
+- Claude `PermissionRequest` and Codex `PreToolUse` both route through `@app.permission()`
+- both providers share the same `HookPayload` base model
+- provider-specific response wire formats are handled by adapters
 
-app = AgentHook(provider=HookProvider.CODEX)
+## Start Here
 
+If you want the fastest path, install the tool and wire the built-in callback into your provider config.
 
-@app.permission()
-def permission_handler(hook_event: PermissionRequestEvent):
-    return build_permission_response(DialogButton.ALLOW_ONCE, hook_event)
-```
+### Claude Code
 
-Run it directly:
-
-```python
-from agent_hooks.runner import run_callback
-
-run_callback(app)
-```
-
-Or load it by import string or file path:
+Install the CLI:
 
 ```bash
-agent-hooks run my_hooks:app --app-dir .
+uv tool install agent-hooks
 ```
+
+Put this in `~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "agent-hooks callback --provider claude-code"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "permission_prompt",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "agent-hooks callback --provider claude-code"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "agent-hooks callback --provider claude-code"
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "agent-hooks callback --provider claude-code"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+This is enough to route Claude Code permission, notification, and stop events into the built-in callback.
+
+### Codex
+
+Install the CLI:
 
 ```bash
-agent-hooks run my_hooks.py --provider claude-code
+uv tool install agent-hooks
 ```
 
-Useful framework properties:
+If your Codex build still requires the feature flag, add this to `~/.codex/config.toml`:
 
-- provider-neutral event normalization
-- decorator-based routing
-- typed injection for event models, `CallbackRequest`, and `DisplayTransport`
-- middleware short-circuiting for provider-specific behavior
-- custom response models as long as they expose `suppress_output`, `hook_specific_output`, and `as_payload()`
-
-## How It Works
-
-At a high level, each callback run looks like this:
-
-1. Read hook JSON from `stdin`
-2. Infer or select the provider
-3. Normalize the raw payload into a shared `HookPayload`
-4. Run provider middleware, then app middleware
-5. Dispatch to a registered route or the default processor
-6. Show macOS UI with `osascript` when needed
-7. Render the provider-specific response JSON to `stdout`
-8. Write app, input-audit, and response-audit logs
-
-## Provider Support
-
-| Provider | Normalized events | Built-in app behavior | Permission behavior | Notable limits |
-| --- | --- | --- | --- | --- |
-| Claude Code | `Notification`, `PermissionRequest`, `Stop`, `StopFailure` | Notifications, permission dialogs, stop notifications, stop-failure notifications | `Allow Once`, `Deny`, and session-scoped `Always Allow` when permission suggestions are present | More Claude raw events are detected than the built-in app currently turns into first-class behavior |
-| Codex | `SessionStart`, `PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `Stop` | Permission dialogs for `PreToolUse`, notifications for `Stop`, empty responses for `SessionStart`, `UserPromptSubmit`, and `PostToolUse` | `Allow Once` or `Deny`; Bash requests can auto-allow through `execpolicy` | No built-in persistent `Always Allow` path for Codex permission requests |
-
-## Documentation
-
-The repository now includes a dedicated MkDocs site under `docs/` with pages for overview, features, CLI usage, the callback framework, architecture, provider details, configuration, logging, and limitations.
-
-Install docs dependencies and serve the site locally:
-
-```bash
-uv sync --group docs
+```toml
+[features]
+codex_hooks = true
 ```
 
-```bash
-uv run --group docs mkdocs serve
+Put this in `~/.codex/hooks.json`:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "agent-hooks callback --provider codex",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "agent-hooks callback --provider codex",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
 ```
 
-Build the static site:
+This is enough to route Codex Bash permission checks and stop notifications into the built-in callback.
 
-```bash
-uv run --group docs mkdocs build --strict
-```
+Recommended setup: pass `--provider` explicitly in your provider config when you can. The built-in callback can infer providers from payload markers, but the explicit flag keeps local setup easier to reason about and debug.
+
+If you want to build your own hook app, start with [`AgentHook`](docs/framework/agenthook.md) and then run it with [`agent-hooks run`](docs/cli/custom-apps.md).
+
+## Docs Map
+
+- [Features](docs/features.md)
+- [macOS Quickstart](docs/getting-started/macos-quickstart.md)
+- [Built-in Callback](docs/cli/builtin-callback.md)
+- [AgentHook](docs/framework/agenthook.md)
+- [Architecture Overview](docs/architecture/overview.md)
+- [Claude Code](docs/providers/claude-code.md)
+- [Codex](docs/providers/codex.md)
+
+## Scope
+
+Agent Hooks currently supports only two providers:
+
+- Claude Code
+- Codex
+
+The docs stay aligned with the current implementation. They describe supported behavior that exists today, not placeholder integrations for future providers.
 
 ## License
 

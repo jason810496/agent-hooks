@@ -2,6 +2,60 @@
 
 This page documents the current Codex implementation in Agent Hooks.
 
+## Quick Setup
+
+Install the CLI:
+
+```bash
+uv tool install agent-hooks
+```
+
+If your Codex build still requires the feature flag, add this to `~/.codex/config.toml`:
+
+```toml
+[features]
+codex_hooks = true
+```
+
+Put this in `~/.codex/hooks.json`:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "agent-hooks callback --provider codex",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "agent-hooks callback --provider codex",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+This gives Codex a local permission dialog for Bash tool calls plus local stop notifications through the same callback command.
+
+If your Codex build already has hooks enabled by default, keep the `hooks.json` example above and skip this stanza.
+
+!!! tip "Why the example matches only Bash"
+    The built-in Codex UX is strongest around `PreToolUse` permission mediation for shell commands. Start there, then broaden the matcher later if your workflow needs more coverage.
+
 ## Raw Event Coverage
 
 The Codex adapter normalizes these raw events:

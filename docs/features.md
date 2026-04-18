@@ -7,6 +7,9 @@
 - One custom-app runner, `agent-hooks run`
 - One normalized event model across supported providers
 
+!!! note "Why this matters"
+    **The package is optimized for local-first setup.** You can start with the built-in callback, then move to a custom `AgentHook` app only when you actually need custom routing or provider-specific logic.
+
 ## macOS-Ready Out of the Box
 
 - Uses the system `osascript` binary for dialogs and notifications
@@ -19,6 +22,9 @@
 - Codex support
 - Provider auto-detection when payload markers are available
 - Explicit provider selection with `--provider` or `AGENT_HOOK_PROVIDER`
+
+!!! tip "Recommended"
+    **Prefer explicit provider selection** for real setups. Auto-detection is convenient, but `--provider` or `AGENT_HOOK_PROVIDER` makes callback behavior more predictable.
 
 ## Framework Ergonomics
 
@@ -36,12 +42,18 @@
 - Codex stop notifications
 - Codex `execpolicy` shortcut for already-allowed Bash commands
 
+!!! info "Built-in behavior is intentionally narrow"
+    The built-in app handles the most useful local workflows first: **permission prompts, notifications, and safe short-circuiting for allowed Codex Bash commands**. If you need richer automation, use the framework layer.
+
 ## Logging and Auditability
 
 - Rotating application log
 - Raw input audit log
 - Rendered response audit log
 - Configurable log file paths, sizes, and backup counts
+
+!!! note "Operational visibility"
+    **Every callback run can be audited locally.** This is useful when you need to verify what the provider sent, what the callback rendered, and why a dialog or response looked the way it did.
 
 ## Packaging
 

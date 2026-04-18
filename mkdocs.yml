@@ -1,8 +1,14 @@
 site_name: Agent Hooks
 site_description: Local callback framework and macOS-ready hook CLI for Claude Code and Codex
+repo_url: https://github.com/jason810496/agent-hooks
+repo_name: jason810496/agent-hooks
 
 theme:
   name: material
+  logo: assets/agent-hooks-logo-mark.svg
+  favicon: assets/agent-hooks-logo-mark.svg
+  icon:
+    repo: fontawesome/brands/github
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
@@ -25,7 +31,6 @@ theme:
     - search.highlight
     - search.share
     - content.code.copy
-    - content.code.select
     - content.code.annotate
     - content.tabs.link
 
@@ -60,7 +65,6 @@ markdown_extensions:
 
 nav:
   - Home: index.md
-  - Overview: overview.md
   - Features: features.md
   - Getting Started:
       - macOS Quickstart: getting-started/macos-quickstart.md

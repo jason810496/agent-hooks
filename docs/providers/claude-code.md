@@ -2,6 +2,73 @@
 
 This page documents the current Claude Code implementation in Agent Hooks.
 
+## Quick Setup
+
+Install the CLI:
+
+```bash
+uv tool install agent-hooks
+```
+
+Put this in `~/.claude/settings.json` for a global setup, or in `.claude/settings.json` for a project-local setup:
+
+```json
+{
+  "hooks": {
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "agent-hooks callback --provider claude-code"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "permission_prompt",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "agent-hooks callback --provider claude-code"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "agent-hooks callback --provider claude-code"
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "agent-hooks callback --provider claude-code"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+This setup wires the built-in callback into the Claude flows Agent Hooks handles best today:
+
+- `PermissionRequest` for local allow or deny decisions
+- `Notification` with `matcher: "permission_prompt"` so attention requests also surface locally
+- `Stop` and `StopFailure` for local completion or error visibility
+
+!!! tip "Why the explicit provider flag"
+    Use `--provider claude-code` in the hook command even though Claude payloads are often identifiable on their own. It keeps the callback wiring explicit and easier to debug later.
+
 ## Raw Event Coverage
 
 The Claude adapter currently normalizes these raw events into first-class shared event names:
