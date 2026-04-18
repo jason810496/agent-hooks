@@ -8,6 +8,20 @@
 
 Agent Hooks gives Claude Code and Codex one local callback layer: a macOS-ready CLI for native permission dialogs and notifications, plus a FastAPI-like framework when you want to own the policy in Python.
 
+## Install
+
+Use the standalone CLI. See the [Built-in CLI](https://www.zhu424.dev/agent-hooks/latest/cli/builtin-callback/) docs for wiring it into your provider config.
+
+```bash
+uv tool install agent-hooks
+```
+
+Or install it inside a Python project:
+
+```bash
+uv pip install agent-hooks
+```
+
 ## What It Looks Like
 
 ### Claude Code
@@ -39,10 +53,10 @@ def permission_handler(hook_event: PermissionRequestEvent):
 ```
 
 ```bash
-agent-hooks run my_hooks:app --app-dir . --provider codex
+agent-hooks run my_hooks:app --provider codex
 ```
 
-One typed handler can serve Claude Code `PermissionRequest` and Codex `PreToolUse` without writing provider-specific schema glue.
+A single typed handler can serve Claude Code's `PermissionRequest` and Codex's `PreToolUse` without requiring provider-specific schema glue.
 
 ## Why It Exists
 
@@ -63,7 +77,7 @@ Use `AgentHook` when you need to define custom permission, notification, or stop
 
 ### Built-in CLI
 
-The built-in app is exposed as `agent_hooks.cli_app.app:app` and run through:
+The built-in app is exposed as `agent_hooks.cli_app.app:app` and can be run with:
 
 ```bash
 agent-hooks callback
