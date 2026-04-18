@@ -2,6 +2,7 @@ site_name: Agent Hooks
 site_description: Local callback framework and macOS-ready hook CLI for Claude Code and Codex
 repo_url: https://github.com/jason810496/agent-hooks
 repo_name: jason810496/agent-hooks
+site_url: https://jason810496.github.io/agent-hooks/
 
 theme:
   name: material
