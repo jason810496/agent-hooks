@@ -1,3 +1,11 @@
+---
+description: Bring Claude Code and Codex permission requests back to a local macOS dialog, and build custom hook apps with a FastAPI-like framework.
+social_title: Agent Hooks
+social_description: Approve Claude Code and Codex permission requests from a local macOS dialog instead of hunting through session windows, then build custom hook apps with a FastAPI-like framework.
+social_image: assets/agent-hooks-claude-code-example.png
+social_image_alt: Agent Hooks showing a local macOS permission dialog for a Claude Code permission request
+---
+
 # Agent Hooks
 
 ![Agent Hooks landing graphic](assets/agent-hooks-landing.svg){ .ah-hero-image }

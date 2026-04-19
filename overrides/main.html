@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block extrahead %}
+  {{ super() }}
+  {% set page_meta = page.meta if page and page.meta else {} %}
+  {% set social = config.extra.social_preview if config.extra and config.extra.social_preview else {} %}
+  {% set social_title = page_meta.get("social_title") or page_meta.get("title") or (page.title if page and page.title else config.site_name) %}
+  {% if social_title != config.site_name %}
+    {% set social_title = social_title ~ " - " ~ config.site_name %}
+  {% endif %}
+  {% set social_description = page_meta.get("social_description") or page_meta.get("description") or social.get("description") or config.site_description %}
+  {% set social_image = page_meta.get("social_image") or social.get("image") %}
+  {% set social_image_alt = page_meta.get("social_image_alt") or social.get("image_alt") or social_title %}
+  {% set social_image_type = page_meta.get("social_image_type") or social.get("image_type") %}
+  {% set social_image_width = page_meta.get("social_image_width") or social.get("image_width") %}
+  {% set social_image_height = page_meta.get("social_image_height") or social.get("image_height") %}
+  {% if social_image %}
+    {% if social_image.startswith("http://") or social_image.startswith("https://") %}
+      {% set social_image_url = social_image %}
+    {% elif page and page.canonical_url %}
+      {% if page.url %}
+        {% set social_image_url = page.canonical_url|replace(page.url, social_image) %}
+      {% else %}
+        {% set social_image_url = page.canonical_url.rstrip("/") ~ "/" ~ social_image.lstrip("/") %}
+      {% endif %}
+    {% elif config.site_url %}
+      {% set social_image_url = config.site_url.rstrip("/") ~ "/" ~ social_image.lstrip("/") %}
+    {% else %}
+      {% set social_image_url = social_image|url %}
+    {% endif %}
+  {% endif %}
+
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="{{ config.site_name }}" />
+  <meta property="og:title" content="{{ social_title }}" />
+  <meta property="og:description" content="{{ social_description }}" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="{{ social_title }}" />
+  <meta name="twitter:description" content="{{ social_description }}" />
+  {% if social_image_url %}
+    <meta property="og:image" content="{{ social_image_url }}" />
+    <meta property="og:image:alt" content="{{ social_image_alt }}" />
+    <meta name="twitter:image" content="{{ social_image_url }}" />
+    <meta name="twitter:image:alt" content="{{ social_image_alt }}" />
+  {% endif %}
+  {% if social_image_type %}
+    <meta property="og:image:type" content="{{ social_image_type }}" />
+  {% endif %}
+  {% if social_image_width %}
+    <meta property="og:image:width" content="{{ social_image_width }}" />
+  {% endif %}
+  {% if social_image_height %}
+    <meta property="og:image:height" content="{{ social_image_height }}" />
+  {% endif %}
+{% endblock %}
