@@ -18,7 +18,7 @@ from agent_hooks.models.events import (
 )
 from agent_hooks.models.schemas.hooks import HookInput
 from agent_hooks.models.schemas.processing import HookProcessingResult
-from agent_hooks.processor import process_hook
+from agent_hooks.processor import process_notification_event, process_permission_request
 from agent_hooks.providers import provider_client
 from agent_hooks.router.definitions import (
     EventModelT,
@@ -149,13 +149,36 @@ class AgentHook:
         route = self._routes.get(input_data.payload.event_name)
         if route is None:
             if self._fallback_to_default_processor:
-                return process_hook(input_data, transport)
+                return self._process_hook(input_data, transport)
             return empty_processing_result()
 
         request = CallbackRequest(input_data=input_data)
         hook_event = route.event_factory(input_data.payload)
         result = call_route_handler(route, request, hook_event, transport)
         return coerce_route_result(result)
+
+    def _process_hook(
+        self,
+        input_data: HookInput,
+        transport: DisplayTransport,
+    ) -> HookProcessingResult:
+        """Process an unhandled hook payload with the built-in fallback behavior.
+
+        :param input_data: Parsed hook input.
+        :type input_data: HookInput
+        :param transport: UI transport implementation.
+        :type transport: DisplayTransport
+        :return: Processing result for logging and emission.
+        """
+        error = input_data.parse_error
+        if error is not None:
+            return empty_processing_result(error=error)
+
+        payload = input_data.payload
+        if payload.event_name == HookEventName.PERMISSION_REQUEST:
+            return process_permission_request(payload, transport, current_error=error)
+
+        return process_notification_event(payload, transport, current_error=error)
 
     def run_callback(
         self,

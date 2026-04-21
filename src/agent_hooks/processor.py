@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
 
-from agent_hooks.enums import DialogButton, HookEventName, TransportStatus
+from agent_hooks.enums import DialogButton, TransportStatus
 from agent_hooks.models.schemas.display import AppleScriptResult
-from agent_hooks.models.schemas.hooks import HookInput, HookPayload
+from agent_hooks.models.schemas.hooks import HookPayload
 from agent_hooks.models.schemas.processing import HookProcessingResult
 from agent_hooks.models.schemas.responses import AppleScriptDialogResponse, HookResponse
 from agent_hooks.providers import provider_client
@@ -21,31 +21,6 @@ if TYPE_CHECKING:
     )
 
 DEFAULT_HOOK_RESPONSE = HookResponse()
-
-
-def process_hook(input_data: HookInput, transport: DisplayTransport) -> HookProcessingResult:
-    """Process a parsed hook payload into a response and optional UI action.
-
-    :param input_data: Parsed hook input.
-    :type input_data: HookInput
-    :param transport: UI transport implementation.
-    :type transport: DisplayTransport
-    :return: Processing result for logging and emission.
-    """
-    error = input_data.parse_error
-    if input_data.parse_error is not None:
-        return HookProcessingResult(
-            display=None,
-            transport_result=None,
-            response=DEFAULT_HOOK_RESPONSE,
-            error=input_data.parse_error,
-        )
-
-    payload = input_data.payload
-    if payload.event_name == HookEventName.PERMISSION_REQUEST:
-        return process_permission_request(payload, transport, current_error=error)
-
-    return process_notification_event(payload, transport, current_error=error)
 
 
 def process_permission_request(

@@ -47,7 +47,6 @@ from agent_hooks.models.response import (
 from agent_hooks.parsing import build_hook_payload, read_hook_input
 from agent_hooks.processor import (
     build_permission_response,
-    process_hook,
     process_permission_request,
 )
 from agent_hooks.providers import provider_client
@@ -441,7 +440,7 @@ class TestPermissionResponse:
         }
 
 
-class TestProcessHook:
+class TestAgentHookFallback:
     def test_notification_failure_surfaces_transport_error(self) -> None:
         input_data = read_hook_input(
             StringIO(
@@ -457,7 +456,7 @@ class TestProcessHook:
             )
         )
 
-        result = process_hook(input_data, transport)
+        result = AgentHook().dispatch(input_data, transport)
 
         assert result.error == "notification failed"
         assert result.response.as_payload() == {"suppressOutput": True}
