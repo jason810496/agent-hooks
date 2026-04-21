@@ -133,68 +133,8 @@ class HookProviderClient:
 provider_client = HookProviderClient()
 
 
-def coerce_provider(value: HookProvider | str | None) -> HookProvider:
-    """Normalize a provider value."""
-    return provider_client.coerce_provider(value)
-
-
-def infer_provider(raw_payload: JsonObject) -> HookProvider:
-    """Infer the hook provider from the raw input payload."""
-    return provider_client.infer_provider(raw_payload)
-
-
-def build_hook_payload(provider: HookProvider | str | None, raw_payload: JsonObject) -> HookPayload:
-    """Build the normalized payload for one provider."""
-    return provider_client.build_hook_payload(raw_payload, provider=provider)
-
-
-def render_response_payload(
-    provider: HookProvider | str | None,
-    response: HookResponseProtocol | None,
-    *,
-    input_payload: HookPayload | None = None,
-) -> JsonObject:
-    """Render a provider-neutral response into the provider wire format."""
-    return provider_client.render_response_payload(
-        response,
-        provider=provider,
-        input_payload=input_payload,
-    )
-
-
-def build_notification(payload: HookPayload) -> NotificationSpec | None:
-    """Build the provider-specific notification display, when supported."""
-    return provider_client.build_notification(payload)
-
-
-def build_permission_dialog(payload: HookPayload) -> DialogSpec:
-    """Build the provider-specific permission dialog."""
-    return provider_client.build_permission_dialog(payload)
-
-
-def build_permission_response(
-    button: DialogButton,
-    payload: HookPayload,
-) -> AppleScriptDialogResponse:
-    """Build the provider response for one permission dialog selection."""
-    return provider_client.build_permission_response(button, payload)
-
-
-def get_provider_middlewares(provider: HookProvider | str | None) -> tuple[HookMiddleware, ...]:
-    """Return the provider middlewares configured for one provider."""
-    return provider_client.get_middlewares(provider)
-
-
 __all__ = [
     "DEFAULT_PROVIDER",
     "HookProviderClient",
-    "build_hook_payload",
-    "build_notification",
-    "build_permission_dialog",
-    "build_permission_response",
-    "coerce_provider",
-    "get_provider_middlewares",
-    "infer_provider",
     "provider_client",
-    "render_response_payload",
 ]
