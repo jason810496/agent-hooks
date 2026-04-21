@@ -6,7 +6,7 @@ from pathlib import Path
 
 from agent_hooks import AgentHook, HookProvider, HookResponse, SessionStartEvent
 from agent_hooks.enums import HookEventName
-from agent_hooks.models import HookSpecificOutput
+from agent_hooks.models.response import HookSpecificOutput
 
 CANDIDATE_FILES = (
     "AGENTS.md",

@@ -12,7 +12,7 @@ from agent_hooks import (
     StopFailureEvent,
 )
 from agent_hooks.enums import NotificationSound
-from agent_hooks.models import HookProcessingResult, NotificationSpec
+from agent_hooks.models.response import HookProcessingResult, NotificationSpec
 from agent_hooks.transport import DisplayTransport
 
 app = AgentHook(fallback_to_default_processor=False)

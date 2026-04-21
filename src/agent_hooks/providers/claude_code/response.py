@@ -5,7 +5,8 @@ from __future__ import annotations
 import contextlib
 
 from agent_hooks.enums import HookEventName
-from agent_hooks.models import HookPayload, JsonObject
+from agent_hooks.models.schemas.hooks import HookPayload
+from agent_hooks.models.schemas.json_types import JsonObject
 from agent_hooks.providers.claude_code.payload import RAW_EVENT_TO_NORMALIZED
 from agent_hooks.providers.common import coerce_object, coerce_text
 

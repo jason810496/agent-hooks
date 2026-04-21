@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from agent_hooks.enums import AppleScriptInvocation, DialogButton, TransportStatus
-from agent_hooks.models import AppleScriptResult, DialogSpec
+from agent_hooks.models.response import AppleScriptResult, DialogSpec
 from agent_hooks.transport import AppleScriptTransport, resolve_dialog_icon_path
 
 

@@ -8,7 +8,7 @@ from collections.abc import Callable
 from agent_hooks import AgentHook, build_permission_response
 from agent_hooks.enums import DialogButton, HookEventName
 from agent_hooks.middleware import HookMiddlewareContext
-from agent_hooks.models import HookProcessingResult
+from agent_hooks.models.response import HookProcessingResult
 
 SAFE_EXECUTABLES = frozenset(
     {

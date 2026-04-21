@@ -93,11 +93,18 @@ After a local `mike deploy`, run `uv run --group docs mike serve` if you want to
    ```bash
    uvx ruff check .
    uv run --group dev pytest
+   rm -r dist
    uv build
    uvx twine check dist/*
    ```
 
 4. Commit the version bump.
+
+   ```bash
+   git add pyproject.toml
+   git commit -m "Release candidate 0.2.0rc1"
+   ```
+
 5. Create and push the candidate tag:
 
    ```bash
@@ -124,11 +131,18 @@ Use the TestPyPI install flow to validate the candidate in a clean environment b
    ```bash
    uvx ruff check .
    uv run --group dev pytest
+   rm -r dist
    uv build
    uvx twine check dist/*
    ```
 
 4. Commit the version bump.
+
+   ```bash
+   git add pyproject.toml uv.lock
+   git commit -m "Release 0.2.0"
+   ```
+
 5. Create and push the release tag:
 
    ```bash

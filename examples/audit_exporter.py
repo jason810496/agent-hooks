@@ -14,7 +14,7 @@ from example_utils import (
 
 from agent_hooks import AgentHook
 from agent_hooks.middleware import HookMiddlewareContext
-from agent_hooks.models import HookProcessingResult
+from agent_hooks.models.response import HookProcessingResult
 
 AUDIT_DIRECTORY_ENV_VAR = "AGENT_HOOK_AUDIT_EXPORT_DIR"
 DEFAULT_AUDIT_DIRECTORY = ".agent-hooks/audit-export"

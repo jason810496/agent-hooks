@@ -9,7 +9,12 @@ from pathlib import Path
 from typing import Protocol
 
 from agent_hooks.enums import AppleScriptInvocation, DialogButton, TransportStatus
-from agent_hooks.models import AppleScriptResult, DialogResult, DialogSpec, NotificationSpec
+from agent_hooks.models.schemas.display import (
+    AppleScriptResult,
+    DialogResult,
+    DialogSpec,
+    NotificationSpec,
+)
 
 NOTIFICATION_SCRIPT = """
 on run argv
@@ -129,7 +134,7 @@ class AppleScriptTransport:
             script=DIALOG_SCRIPT,
         )
         button = (
-            parse_dialog_button(transport.stdout)
+            self._parse_dialog_button(transport.stdout)
             if transport.status == TransportStatus.SUCCEEDED
             else None
         )
@@ -210,20 +215,19 @@ class AppleScriptTransport:
 
         return None
 
+    def _parse_dialog_button(self, stdout: str) -> DialogButton | None:
+        """Parse the selected button from AppleScript stdout.
 
-def parse_dialog_button(stdout: str) -> DialogButton | None:
-    """Parse the selected button from AppleScript stdout.
+        :param stdout: Raw AppleScript stdout.
+        :type stdout: str
+        :return: Parsed dialog button, or ``None`` when unavailable.
+        """
+        marker = "button returned:"
+        if marker not in stdout:
+            return None
 
-    :param stdout: Raw AppleScript stdout.
-    :type stdout: str
-    :return: Parsed dialog button, or ``None`` when unavailable.
-    """
-    marker = "button returned:"
-    if marker not in stdout:
-        return None
-
-    button_label = stdout.split(marker, 1)[1].split(",", 1)[0].splitlines()[0].strip()
-    try:
-        return DialogButton(button_label)
-    except ValueError:
-        return None
+        button_label = stdout.split(marker, 1)[1].split(",", 1)[0].splitlines()[0].strip()
+        try:
+            return DialogButton(button_label)
+        except ValueError:
+            return None

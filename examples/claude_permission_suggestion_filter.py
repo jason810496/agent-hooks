@@ -11,7 +11,7 @@ from agent_hooks import (
     build_permission_response,
 )
 from agent_hooks.enums import DialogButton, HookEventName, PermissionBehavior
-from agent_hooks.models import HookSpecificOutput, PermissionDecision, PermissionUpdate
+from agent_hooks.models.response import HookSpecificOutput, PermissionDecision, PermissionUpdate
 
 SAFE_BASH_RULE_PREFIXES = (
     "find ",

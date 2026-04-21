@@ -7,13 +7,10 @@ from typing import Protocol
 
 from agent_hooks.enums import DialogButton, HookProvider
 from agent_hooks.middleware import HookMiddleware
-from agent_hooks.models import (
-    AppleScriptDialogResponse,
-    DialogSpec,
-    HookPayload,
-    JsonObject,
-    NotificationSpec,
-)
+from agent_hooks.models.schemas.display import DialogSpec, NotificationSpec
+from agent_hooks.models.schemas.hooks import HookPayload
+from agent_hooks.models.schemas.json_types import JsonObject
+from agent_hooks.models.schemas.responses import AppleScriptDialogResponse
 
 
 class HookPayloadMatcher(Protocol):

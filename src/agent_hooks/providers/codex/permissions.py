@@ -3,12 +3,9 @@
 from __future__ import annotations
 
 from agent_hooks.enums import DialogButton, HookEventName, PermissionBehavior
-from agent_hooks.models import (
-    AppleScriptDialogResponse,
-    HookPayload,
-    HookSpecificOutput,
-    PermissionDecision,
-)
+from agent_hooks.models.schemas.hooks import HookPayload
+from agent_hooks.models.schemas.permissions import PermissionDecision
+from agent_hooks.models.schemas.responses import AppleScriptDialogResponse, HookSpecificOutput
 
 
 def build_permission_response(

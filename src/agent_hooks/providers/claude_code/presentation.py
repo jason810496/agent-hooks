@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from agent_hooks.enums import DialogButton, HookEventName, NotificationSound
-from agent_hooks.models import DialogSpec, HookPayload, NotificationSpec
+from agent_hooks.models.schemas.display import DialogSpec, NotificationSpec
+from agent_hooks.models.schemas.hooks import HookPayload
 from agent_hooks.providers.claude_code.permissions import first_permission_rule
 from agent_hooks.providers.common import format_tool_detail
 from agent_hooks.text import compact_text, first_non_empty_line, humanize

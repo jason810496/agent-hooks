@@ -5,14 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from agent_hooks.enums import DialogButton, HookEventName, PermissionBehavior, PermissionDestination
-from agent_hooks.models import (
-    AppleScriptDialogResponse,
-    HookPayload,
-    HookSpecificOutput,
-    JsonObject,
-    PermissionDecision,
-    PermissionUpdate,
-)
+from agent_hooks.models.schemas.hooks import HookPayload
+from agent_hooks.models.schemas.json_types import JsonObject
+from agent_hooks.models.schemas.permissions import PermissionDecision, PermissionUpdate
+from agent_hooks.models.schemas.responses import AppleScriptDialogResponse, HookSpecificOutput
 from agent_hooks.providers.common import coerce_object_list, coerce_text
 
 

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from agent_hooks.enums import HookEventName, HookProvider
-from agent_hooks.models import HookPayload, JsonObject, ToolInput
+from agent_hooks.models.schemas.hooks import HookPayload, ToolInput
+from agent_hooks.models.schemas.json_types import JsonObject
 from agent_hooks.providers.common import coerce_object, coerce_text
 
 RAW_EVENT_TO_NORMALIZED = {

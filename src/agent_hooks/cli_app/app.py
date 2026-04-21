@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from agent_hooks.models import HookProcessingResult, HookResponse
+from agent_hooks.models.response import HookProcessingResult, HookResponse
 from agent_hooks.processor import process_notification_event, process_permission_request
 from agent_hooks.router import (
     AgentHook,

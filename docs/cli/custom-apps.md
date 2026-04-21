@@ -10,14 +10,6 @@ Python file target:
 agent-hooks run main.py --provider claude-code
 ```
 
-Import string target:
-
-```bash
-agent-hooks run main:app --app-dir . --provider codex
-```
-
-The import-string form is intentionally close to the style people already know from ASGI tooling.
-
 ## Minimal Example
 
 ```python
@@ -38,7 +30,7 @@ def permission_handler(hook_event: PermissionRequestEvent) -> HookResponse:
 Run it:
 
 ```bash
-agent-hooks run my_hooks:app --app-dir . --provider claude-code
+agent-hooks run my_hooks.py --app-dir . --provider claude-code
 ```
 
 ## When To Use A Custom App
@@ -51,12 +43,8 @@ agent-hooks run my_hooks:app --app-dir . --provider claude-code
 
 ## Callback Target Types
 
-The runner accepts:
-
-- an `AgentHook` instance
-- a direct callback handler
-- an import string
-- a Python file path
+- `run_callback(...)` accepts an `AgentHook` instance
+- `agent-hooks run ...` accepts a Python file path containing a top-level `AgentHook` instance
 
 ## Provider Choice Still Matters
 

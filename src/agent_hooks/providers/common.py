@@ -5,7 +5,8 @@ from __future__ import annotations
 from enum import Enum
 from typing import TypeVar, cast
 
-from agent_hooks.models import HookPayload, JsonObject, JsonValue
+from agent_hooks.models.schemas.hooks import HookPayload
+from agent_hooks.models.schemas.json_types import JsonObject, JsonValue
 from agent_hooks.text import compact_text
 
 EnumT = TypeVar("EnumT", bound=Enum)

@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+import agent_hooks.runner as runner_module
 from agent_hooks import (
     AgentHook,
     CallbackRequest,
@@ -36,7 +37,7 @@ from agent_hooks.enums import (
     HookProvider,
     TransportStatus,
 )
-from agent_hooks.models import (
+from agent_hooks.models.response import (
     AppleScriptDialogResponse,
     AppleScriptResult,
     DialogResult,
@@ -44,24 +45,17 @@ from agent_hooks.models import (
     HookResponse,
 )
 from agent_hooks.parsing import build_hook_payload, read_hook_input
-from agent_hooks.presentation import build_permission_dialog
 from agent_hooks.processor import (
     build_permission_response,
     process_hook,
     process_permission_request,
 )
+from agent_hooks.providers import provider as hook_provider
 from agent_hooks.providers.codex.middleware import (
     CODEX_EXECPOLICY_RULES_ENV_VAR,
     run_codex_execpolicy_check,
 )
-from agent_hooks.runner import (
-    discover_agent_hook_name,
-    load_callback_target,
-    load_run_callback_target,
-    module_name_from_path,
-    render_hook_response,
-    run_callback,
-)
+from agent_hooks.runner import run_callback
 from agent_hooks.transport import DisplayTransport
 
 
@@ -156,6 +150,21 @@ def write_app_module(
     )
 
 
+class TestModelPublicModules:
+    def test_request_response_modules_share_schema_classes(self) -> None:
+        from agent_hooks.models import HookInput as PackageHookInput
+        from agent_hooks.models import HookResponse as PackageHookResponse
+        from agent_hooks.models.request import HookInput
+        from agent_hooks.models.response import HookResponse
+        from agent_hooks.models.schemas.hooks import HookInput as SchemaHookInput
+        from agent_hooks.models.schemas.responses import HookResponse as SchemaHookResponse
+
+        assert HookInput is SchemaHookInput
+        assert PackageHookInput is SchemaHookInput
+        assert HookResponse is SchemaHookResponse
+        assert PackageHookResponse is SchemaHookResponse
+
+
 class TestReadHookInput:
     def test_invalid_json_returns_parse_error(self) -> None:
         result = read_hook_input(StringIO("{not-json"))
@@ -209,7 +218,7 @@ class TestPresentation:
             }
         )
 
-        dialog = build_permission_dialog(payload)
+        dialog = hook_provider.build_permission_dialog(payload)
 
         assert dialog.default_button == DialogButton.ALLOW_ONCE
         assert '"Always Allow" adds session rule: Bash(git *)' in dialog.message
@@ -231,7 +240,7 @@ class TestPresentation:
             provider=HookProvider.CODEX,
         )
 
-        dialog = build_permission_dialog(payload)
+        dialog = hook_provider.build_permission_dialog(payload)
 
         assert dialog.title == "Codex — Permission Request"
         assert dialog.buttons == (DialogButton.DENY, DialogButton.ALLOW_ONCE)
@@ -297,7 +306,7 @@ class TestPermissionResponse:
         response = build_permission_response(DialogButton.DENY, payload)
 
         assert json.loads(
-            render_hook_response(
+            runner_module._render_hook_response(
                 response,
                 provider=HookProvider.CODEX,
                 input_payload=payload,
@@ -331,7 +340,7 @@ class TestPermissionResponse:
 
         assert (
             json.loads(
-                render_hook_response(
+                runner_module._render_hook_response(
                     response,
                     provider=HookProvider.CODEX,
                     input_payload=payload,
@@ -361,7 +370,7 @@ class TestPermissionResponse:
 
         assert (
             json.loads(
-                render_hook_response(
+                runner_module._render_hook_response(
                     response,
                     provider=HookProvider.CODEX,
                     input_payload=payload,
@@ -385,7 +394,7 @@ class TestPermissionResponse:
         )
 
         assert json.loads(
-            render_hook_response(
+            runner_module._render_hook_response(
                 response,
                 provider=HookProvider.CLAUDE_CODE,
                 input_payload=payload,
@@ -420,7 +429,7 @@ class TestPermissionResponse:
         )
 
         assert json.loads(
-            render_hook_response(
+            runner_module._render_hook_response(
                 response,
                 provider=HookProvider.CODEX,
                 input_payload=payload,
@@ -1027,25 +1036,28 @@ class TestRuntimeConfig:
         assert config.provider is None
 
 
-class TestRunTargetLoading:
+class TestAgentHookFileLoader:
     def test_module_name_from_path_uses_app_dir(self, tmp_path: Path) -> None:
+        loader = runner_module.AgentHookFileLoader(app_dir=tmp_path)
         module_path = tmp_path / "package" / "main.py"
         module_path.parent.mkdir()
         module_path.write_text("", encoding="utf-8")
 
-        module_name = module_name_from_path(module_path, app_dir=tmp_path)
+        module_name = loader._module_name_from_path(module_path)
 
         assert module_name == "package.main"
 
     def test_discover_agent_hook_name_from_python_file(self, tmp_path: Path) -> None:
+        loader = runner_module.AgentHookFileLoader(app_dir=tmp_path)
         module_path = tmp_path / "file_discovery_hooks.py"
         write_app_module(module_path)
 
-        discovered_name = discover_agent_hook_name(module_path)
+        discovered_name = loader._discover_agent_hook_name(module_path)
 
         assert discovered_name == "app"
 
     def test_discover_agent_hook_name_raises_when_missing_instance(self, tmp_path: Path) -> None:
+        loader = runner_module.AgentHookFileLoader(app_dir=tmp_path)
         module_path = tmp_path / "missing_hooks.py"
         module_path.write_text(
             "from __future__ import annotations\n\nvalue = 1\n",
@@ -1053,21 +1065,14 @@ class TestRunTargetLoading:
         )
 
         with pytest.raises(ValueError, match="No top-level AgentHook"):
-            discover_agent_hook_name(module_path)
+            loader._discover_agent_hook_name(module_path)
 
-    def test_load_callback_target_accepts_app_dir(self, tmp_path: Path) -> None:
-        module_path = tmp_path / "import_string_hooks.py"
-        write_app_module(module_path)
-
-        target = load_callback_target("import_string_hooks:app", app_dir=tmp_path)
-
-        assert isinstance(target, AgentHook)
-
-    def test_load_run_callback_target_supports_python_file(self, tmp_path: Path) -> None:
+    def test_load_supports_python_file(self, tmp_path: Path) -> None:
+        loader = runner_module.AgentHookFileLoader(app_dir=tmp_path)
         module_path = tmp_path / "file_run_hooks.py"
         write_app_module(module_path)
 
-        target = load_run_callback_target("file_run_hooks.py", app_dir=tmp_path)
+        target = loader.load("file_run_hooks.py")
 
         assert isinstance(target, AgentHook)
 
@@ -1097,6 +1102,7 @@ class TestRunCallback:
         runtime_config = build_runtime_config(tmp_path)
 
         exit_code = run_callback(
+            app,
             stdin=stdin,
             stdout=stdout,
             runtime_config=runtime_config,
@@ -1127,36 +1133,6 @@ class TestRunCallback:
         expected_response_bytes = len(stdout.getvalue().encode("utf-8"))
         assert f'"response_bytes": {expected_response_bytes}' in app_log
 
-    def test_run_callback_accepts_string_callback_target(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        stdin = StringIO(
-            """
-            {
-              "hook_event_name": "PermissionRequest",
-              "tool_name": "Bash",
-              "tool_input": {"command": "git status"}
-            }
-            """
-        )
-        stdout = StringIO()
-        runtime_config = build_runtime_config(tmp_path)
-
-        exit_code = run_callback(
-            "cli_app.app:app",
-            stdin=stdin,
-            stdout=stdout,
-            runtime_config=runtime_config,
-            transport=FakeTransport(),
-        )
-
-        assert exit_code == 0
-        assert stdout.getvalue() == (
-            '{"suppressOutput":true,"hookSpecificOutput":{"hookEventName":"PermissionRequest",'
-            '"decision":{"behavior":"allow"}}}\n'
-        )
-
     def test_run_callback_supports_codex_provider(
         self,
         tmp_path: Path,
@@ -1186,6 +1162,7 @@ class TestRunCallback:
         )
 
         exit_code = run_callback(
+            app,
             stdin=stdin,
             stdout=stdout,
             runtime_config=runtime_config,
@@ -1223,6 +1200,7 @@ class TestRunCallback:
         )
 
         exit_code = run_callback(
+            app,
             stdin=stdin,
             stdout=stdout,
             runtime_config=load_runtime_config({}),
@@ -1255,6 +1233,7 @@ class TestRunCallback:
         transport = FakeTransport()
 
         exit_code = run_callback(
+            app,
             stdin=stdin,
             stdout=stdout,
             runtime_config=build_runtime_config(tmp_path, provider=HookProvider.CODEX),
@@ -1304,6 +1283,7 @@ class TestRunCallback:
         )
 
         exit_code = run_callback(
+            app,
             stdin=stdin,
             stdout=stdout,
             runtime_config=runtime_config,
@@ -1350,7 +1330,7 @@ class TestRunCallback:
             '"decision":{"behavior":"allow"}}}\n'
         )
 
-    def test_run_callback_default_processor_uses_provider_middleware(
+    def test_run_callback_builtin_app_uses_provider_middleware(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
@@ -1379,6 +1359,7 @@ class TestRunCallback:
         )
 
         exit_code = run_callback(
+            app,
             stdin=stdin,
             stdout=stdout,
             runtime_config=build_runtime_config(tmp_path, provider=HookProvider.CODEX),
@@ -1497,33 +1478,6 @@ class TestCliMain:
         assert isinstance(captured_target, AgentHook)
         assert captured_provider == "codex"
 
-    def test_main_run_loads_import_target_with_app_dir(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        tmp_path: Path,
-    ) -> None:
-        module_path = tmp_path / "cli_import_hooks.py"
-        write_app_module(module_path)
-        captured_target: object | None = None
-        captured_provider: str | None = None
-
-        def fake_run_callback(target: object, *, provider: str | None = None) -> int:
-            nonlocal captured_target
-            nonlocal captured_provider
-            captured_target = target
-            captured_provider = provider
-            return 19
-
-        monkeypatch.setattr("agent_hooks.cli_app.cli.run_callback", fake_run_callback)
-
-        exit_code = cli_main(
-            ["run", "cli_import_hooks:app", "--app-dir", str(tmp_path), "--provider", "codex"]
-        )
-
-        assert exit_code == 19
-        assert isinstance(captured_target, AgentHook)
-        assert captured_provider == "codex"
-
     def test_main_callback_passes_provider(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -1543,5 +1497,5 @@ class TestCliMain:
         exit_code = cli_main(["callback", "--provider", "codex"])
 
         assert exit_code == 11
-        assert captured_target == "cli_app.app:app"
+        assert captured_target is app
         assert captured_provider == "codex"

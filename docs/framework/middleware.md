@@ -27,7 +27,7 @@ That ordering lets provider behavior stay close to protocol details while leavin
 from __future__ import annotations
 
 from agent_hooks import AgentHook, HookResponse
-from agent_hooks.models import HookProcessingResult
+from agent_hooks.models.response import HookProcessingResult
 
 app = AgentHook(fallback_to_default_processor=False)
 
