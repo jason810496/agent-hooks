@@ -131,7 +131,6 @@ class HookProviderClient:
 
 
 provider_client = HookProviderClient()
-provider = provider_client
 
 
 def coerce_provider(value: HookProvider | str | None) -> HookProvider:
@@ -196,7 +195,6 @@ __all__ = [
     "coerce_provider",
     "get_provider_middlewares",
     "infer_provider",
-    "provider",
     "provider_client",
     "render_response_payload",
 ]

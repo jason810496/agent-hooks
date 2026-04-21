@@ -9,7 +9,7 @@ from agent_hooks.models.schemas.display import AppleScriptResult
 from agent_hooks.models.schemas.hooks import HookInput, HookPayload
 from agent_hooks.models.schemas.processing import HookProcessingResult
 from agent_hooks.models.schemas.responses import AppleScriptDialogResponse, HookResponse
-from agent_hooks.providers import provider as hook_provider
+from agent_hooks.providers import provider_client
 from agent_hooks.transport import DisplayTransport
 
 if TYPE_CHECKING:
@@ -65,7 +65,7 @@ def process_permission_request(
     :return: Processing result for logging and emission.
     """
     normalized_payload = cast(HookPayload, payload)
-    dialog = hook_provider.build_permission_dialog(normalized_payload)
+    dialog = provider_client.build_permission_dialog(normalized_payload)
     dialog_result = transport.show_dialog(dialog)
     response = (
         build_permission_response(dialog_result.button, normalized_payload)
@@ -96,7 +96,7 @@ def process_notification_event(
     :type current_error: str | None
     :return: Processing result for logging and emission.
     """
-    notification = hook_provider.build_notification(cast(HookPayload, payload))
+    notification = provider_client.build_notification(cast(HookPayload, payload))
     if notification is None:
         return HookProcessingResult(
             display=None,
@@ -126,7 +126,7 @@ def build_permission_response(
     :type payload: HookPayload
     :return: Structured permission response model.
     """
-    return hook_provider.build_permission_response(button, cast(HookPayload, payload))
+    return provider_client.build_permission_response(button, cast(HookPayload, payload))
 
 
 def transport_error(transport_result: object, current_error: str | None) -> str | None:

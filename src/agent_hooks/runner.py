@@ -29,7 +29,7 @@ from agent_hooks.models.schemas.log_records import (
 )
 from agent_hooks.models.schemas.responses import HookResponse, HookResponseProtocol
 from agent_hooks.parsing import read_hook_input
-from agent_hooks.providers import provider as hook_provider
+from agent_hooks.providers import provider_client
 from agent_hooks.transport import AppleScriptTransport, DisplayTransport
 
 if TYPE_CHECKING:
@@ -273,7 +273,7 @@ def _render_hook_response(
 ) -> str:
     """Render the structured response JSON expected by the selected provider."""
     buffer = StringIO()
-    payload = hook_provider.render_response_payload(
+    payload = provider_client.render_response_payload(
         response or HookResponse(),
         provider=provider,
         input_payload=input_payload,
@@ -380,9 +380,9 @@ def _resolve_provider(
 ) -> HookProvider | str | None:
     """Resolve the effective provider for one callback run."""
     if provider is not None:
-        return hook_provider.coerce_provider(provider)
+        return provider_client.coerce_provider(provider)
     if hook.provider is not None:
-        return hook_provider.coerce_provider(hook.provider)
+        return provider_client.coerce_provider(hook.provider)
     return runtime_config.provider
 
 

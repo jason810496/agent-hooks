@@ -10,7 +10,7 @@ from agent_hooks.middleware import HookMiddleware, dispatch_with_middlewares
 from agent_hooks.models.schemas.hooks import HookInput
 from agent_hooks.models.schemas.processing import HookProcessingResult
 from agent_hooks.processor import process_hook
-from agent_hooks.providers import provider as hook_provider
+from agent_hooks.providers import provider_client
 from agent_hooks.router.definitions import (
     EventModelT,
     MiddlewareDecorator,
@@ -130,7 +130,7 @@ class AgentHook:
             return empty_processing_result(error=input_data.parse_error)
 
         middlewares = (
-            *hook_provider.get_middlewares(input_data.payload.provider),
+            *provider_client.get_middlewares(input_data.payload.provider),
             *self._middlewares,
         )
         return dispatch_with_middlewares(

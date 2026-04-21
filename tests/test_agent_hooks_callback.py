@@ -50,7 +50,7 @@ from agent_hooks.processor import (
     process_hook,
     process_permission_request,
 )
-from agent_hooks.providers import provider as hook_provider
+from agent_hooks.providers import provider_client
 from agent_hooks.providers.codex.middleware import (
     CODEX_EXECPOLICY_RULES_ENV_VAR,
     run_codex_execpolicy_check,
@@ -218,7 +218,7 @@ class TestPresentation:
             }
         )
 
-        dialog = hook_provider.build_permission_dialog(payload)
+        dialog = provider_client.build_permission_dialog(payload)
 
         assert dialog.default_button == DialogButton.ALLOW_ONCE
         assert '"Always Allow" adds session rule: Bash(git *)' in dialog.message
@@ -240,7 +240,7 @@ class TestPresentation:
             provider=HookProvider.CODEX,
         )
 
-        dialog = hook_provider.build_permission_dialog(payload)
+        dialog = provider_client.build_permission_dialog(payload)
 
         assert dialog.title == "Codex — Permission Request"
         assert dialog.buttons == (DialogButton.DENY, DialogButton.ALLOW_ONCE)
