@@ -7,6 +7,15 @@ from typing import IO
 from agent_hooks.config import RuntimeConfig
 from agent_hooks.enums import HookEventName, HookProvider
 from agent_hooks.middleware import HookMiddleware, dispatch_with_middlewares
+from agent_hooks.models.events import (
+    NotificationEvent,
+    PermissionRequestEvent,
+    PostToolUseEvent,
+    SessionStartEvent,
+    StopEvent,
+    StopFailureEvent,
+    UserPromptSubmitEvent,
+)
 from agent_hooks.models.schemas.hooks import HookInput
 from agent_hooks.models.schemas.processing import HookProcessingResult
 from agent_hooks.processor import process_hook
@@ -24,15 +33,6 @@ from agent_hooks.router.dispatch import (
     call_route_handler,
     coerce_route_result,
     empty_processing_result,
-)
-from agent_hooks.router.events import (
-    NotificationEvent,
-    PermissionRequestEvent,
-    PostToolUseEvent,
-    SessionStartEvent,
-    StopEvent,
-    StopFailureEvent,
-    UserPromptSubmitEvent,
 )
 from agent_hooks.router.request import CallbackRequest
 from agent_hooks.transport import DisplayTransport

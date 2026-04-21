@@ -2,6 +2,16 @@
 
 from __future__ import annotations
 
+from agent_hooks.models.events import (
+    HookEvent,
+    NotificationEvent,
+    PermissionRequestEvent,
+    PostToolUseEvent,
+    SessionStartEvent,
+    StopEvent,
+    StopFailureEvent,
+    UserPromptSubmitEvent,
+)
 from agent_hooks.models.request import (
     HookInput,
     HookPayload,
@@ -35,6 +45,7 @@ __all__ = [
     "DialogResult",
     "DialogSpec",
     "DisplaySpec",
+    "HookEvent",
     "HookInput",
     "HookPayload",
     "HookProcessingResult",
@@ -45,9 +56,16 @@ __all__ = [
     "JsonObject",
     "JsonScalar",
     "JsonValue",
+    "NotificationEvent",
     "NotificationSpec",
+    "PermissionRequestEvent",
     "PermissionDecision",
     "PermissionUpdate",
+    "PostToolUseEvent",
     "ResponseAuditLogRecord",
+    "SessionStartEvent",
+    "StopEvent",
+    "StopFailureEvent",
     "ToolInput",
+    "UserPromptSubmitEvent",
 ]

@@ -7,9 +7,9 @@ from dataclasses import dataclass
 from typing import TypeAlias, TypeVar
 
 from agent_hooks.middleware import HookMiddleware
+from agent_hooks.models.events import HookEvent
 from agent_hooks.models.schemas.processing import HookProcessingResult
 from agent_hooks.models.schemas.responses import HookResponseProtocol
-from agent_hooks.router.events import HookEvent
 
 EventModelT = TypeVar("EventModelT", bound=HookEvent)
 HandlerResult: TypeAlias = HookProcessingResult | HookResponseProtocol | None

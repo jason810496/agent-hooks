@@ -6,6 +6,7 @@ from dataclasses import fields
 from inspect import Parameter, signature
 from typing import get_type_hints
 
+from agent_hooks.models.events import HookEvent
 from agent_hooks.models.schemas.hooks import HookPayload
 from agent_hooks.models.schemas.processing import HookProcessingResult
 from agent_hooks.models.schemas.responses import HookResponse
@@ -16,7 +17,6 @@ from agent_hooks.router.definitions import (
     RouteDefinition,
     RouteHandler,
 )
-from agent_hooks.router.events import HookEvent
 from agent_hooks.router.request import CallbackRequest
 from agent_hooks.transport import DisplayTransport
 

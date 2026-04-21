@@ -13,7 +13,7 @@ from agent_hooks.providers import provider_client
 from agent_hooks.transport import DisplayTransport
 
 if TYPE_CHECKING:
-    from agent_hooks.router import (
+    from agent_hooks.models.events import (
         NotificationEvent,
         PermissionRequestEvent,
         StopEvent,

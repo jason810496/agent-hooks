@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-from agent_hooks.models.response import HookProcessingResult, HookResponse
-from agent_hooks.processor import process_notification_event, process_permission_request
-from agent_hooks.router import (
-    AgentHook,
+from agent_hooks.models.events import (
     NotificationEvent,
     PermissionRequestEvent,
     PostToolUseEvent,
@@ -14,6 +11,9 @@ from agent_hooks.router import (
     StopFailureEvent,
     UserPromptSubmitEvent,
 )
+from agent_hooks.models.response import HookProcessingResult, HookResponse
+from agent_hooks.processor import process_notification_event, process_permission_request
+from agent_hooks.router import AgentHook
 from agent_hooks.transport import DisplayTransport
 
 app = AgentHook(fallback_to_default_processor=False)
