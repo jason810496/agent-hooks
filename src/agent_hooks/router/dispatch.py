@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Generator
+from contextlib import ExitStack
 from dataclasses import fields
-from inspect import Parameter, signature
+from inspect import Parameter, isgenerator, signature
 from typing import get_type_hints
 
 from agent_hooks.models.events import HookEvent
@@ -11,14 +13,19 @@ from agent_hooks.models.schemas.hooks import HookPayload
 from agent_hooks.models.schemas.processing import HookProcessingResult
 from agent_hooks.models.schemas.responses import HookResponse
 from agent_hooks.router.definitions import (
+    DependencyCallable,
+    DependencyDefinition,
     EventModelT,
     HandlerResult,
     InjectedArgument,
     RouteDefinition,
     RouteHandler,
 )
+from agent_hooks.router.dependencies import Depends
 from agent_hooks.router.request import CallbackRequest
 from agent_hooks.transport import DisplayTransport
+
+_MISSING_DEPENDENCY_VALUE = object()
 
 
 def coerce_route_result(result: HandlerResult) -> HookProcessingResult:
@@ -72,7 +79,7 @@ def call_route_handler(
     hook_event: HookEvent,
     transport: DisplayTransport,
 ) -> HandlerResult:
-    """Invoke a route handler with annotation-based parameter injection.
+    """Invoke a route handler with router-managed parameter injection.
 
     :param route: Registered route definition.
     :type route: RouteDefinition
@@ -84,11 +91,20 @@ def call_route_handler(
     :type transport: DisplayTransport
     :return: Route handler response, or ``None``.
     """
-    keyword_arguments = {
-        argument.parameter_name: _resolve_injected_value(argument, request, hook_event, transport)
-        for argument in route.injected_arguments
-    }
-    return route.handler(**keyword_arguments)
+    dependency_cache: dict[DependencyCallable, object] = {}
+    with ExitStack() as exit_stack:
+        keyword_arguments = {
+            argument.parameter_name: _resolve_injected_value(
+                argument,
+                request,
+                hook_event,
+                transport,
+                dependency_cache,
+                exit_stack,
+            )
+            for argument in route.injected_arguments
+        }
+        return route.handler(**keyword_arguments)
 
 
 def _resolve_injected_value(
@@ -96,6 +112,8 @@ def _resolve_injected_value(
     request: CallbackRequest,
     hook_event: HookEvent,
     transport: DisplayTransport,
+    dependency_cache: dict[DependencyCallable, object],
+    exit_stack: ExitStack,
 ) -> object:
     """Resolve one injected argument value for a route handler.
 
@@ -107,12 +125,25 @@ def _resolve_injected_value(
     :type hook_event: HookEvent
     :param transport: Display transport used by the route handler.
     :type transport: DisplayTransport
+    :param dependency_cache: Per-dispatch dependency value cache.
+    :type dependency_cache: dict[DependencyCallable, object]
+    :param exit_stack: Per-dispatch lifecycle stack for dependency cleanup.
+    :type exit_stack: ExitStack
     :return: Injected value for the handler parameter.
     """
     if argument.value_kind == "request":
         return request
     if argument.value_kind == "transport":
         return transport
+    if argument.value_kind == "dependency":
+        return _resolve_dependency(
+            argument,
+            request,
+            hook_event,
+            transport,
+            dependency_cache,
+            exit_stack,
+        )
     return hook_event
 
 
@@ -129,14 +160,53 @@ def build_injected_arguments(
     :return: Injected argument definitions in declaration order.
     :raises ValueError: If the handler has an unsupported required parameter.
     """
+    return _build_callable_injected_arguments(
+        handler,
+        event_model,
+        owner_kind="Handler",
+        allow_depends=True,
+    )
+
+
+def _build_callable_injected_arguments(
+    handler: RouteHandler | DependencyCallable,
+    event_model: type[HookEvent],
+    *,
+    owner_kind: str,
+    allow_depends: bool,
+) -> tuple[InjectedArgument, ...]:
+    """Build the injection plan for one callable.
+
+    :param handler: Callable whose parameters should be inspected.
+    :type handler: RouteHandler | DependencyCallable
+    :param event_model: Event model allowed for this route.
+    :type event_model: type[HookEvent]
+    :param owner_kind: Human-readable callable category used in errors.
+    :type owner_kind: str
+    :param allow_depends: Whether ``Depends(...)`` is supported for this callable.
+    :type allow_depends: bool
+    :return: Injected argument definitions in declaration order.
+    :raises ValueError: If the callable has an unsupported required parameter.
+    """
     resolved_annotations = get_type_hints(handler)
     injected_arguments: list[InjectedArgument] = []
     for parameter in signature(handler).parameters.values():
+        dependency_argument = _build_dependency_argument(
+            handler,
+            parameter,
+            event_model,
+            owner_kind=owner_kind,
+            allow_depends=allow_depends,
+        )
+        if dependency_argument is not None:
+            injected_arguments.append(dependency_argument)
+            continue
         injected_argument = _build_injected_argument(
             handler,
             parameter,
             resolved_annotations.get(parameter.name, parameter.annotation),
             event_model,
+            owner_kind=owner_kind,
         )
         if injected_argument is not None:
             injected_arguments.append(injected_argument)
@@ -145,15 +215,25 @@ def build_injected_arguments(
             continue
         if parameter.default is not Parameter.empty:
             continue
-        raise ValueError(_unsupported_parameter_message(handler, parameter, event_model))
+        raise ValueError(
+            _unsupported_parameter_message(
+                handler,
+                parameter,
+                event_model,
+                owner_kind=owner_kind,
+                allow_depends=allow_depends,
+            )
+        )
     return tuple(injected_arguments)
 
 
 def _build_injected_argument(
-    handler: RouteHandler,
+    handler: RouteHandler | DependencyCallable,
     parameter: Parameter,
     annotation: object,
     event_model: type[HookEvent],
+    *,
+    owner_kind: str,
 ) -> InjectedArgument | None:
     """Return the injected argument definition for one handler parameter.
 
@@ -180,41 +260,270 @@ def _build_injected_argument(
 
     if parameter.kind == Parameter.POSITIONAL_ONLY:
         raise ValueError(
-            f"Handler '{_handler_name(handler)}' cannot use positional-only injectable "
+            f"{owner_kind} '{_handler_name(handler)}' cannot use positional-only injectable "
             f"parameter '{parameter.name}'."
         )
 
     return InjectedArgument(parameter_name=parameter.name, value_kind=value_kind)
 
 
-def _unsupported_parameter_message(
-    handler: RouteHandler,
+def _build_dependency_argument(
+    handler: RouteHandler | DependencyCallable,
     parameter: Parameter,
     event_model: type[HookEvent],
+    *,
+    owner_kind: str,
+    allow_depends: bool,
+) -> InjectedArgument | None:
+    """Build the dependency injection definition for one parameter.
+
+    :param handler: Callable that owns the parameter.
+    :type handler: RouteHandler | DependencyCallable
+    :param parameter: Callable parameter to inspect.
+    :type parameter: Parameter
+    :param event_model: Event model allowed for this route.
+    :type event_model: type[HookEvent]
+    :param owner_kind: Human-readable callable category used in errors.
+    :type owner_kind: str
+    :param allow_depends: Whether ``Depends(...)`` is supported for this callable.
+    :type allow_depends: bool
+    :return: Dependency-backed injected argument, or ``None``.
+    :raises ValueError: If nested dependencies are declared.
+    """
+    if not isinstance(parameter.default, Depends):
+        return None
+
+    if parameter.kind == Parameter.POSITIONAL_ONLY:
+        raise ValueError(
+            f"{owner_kind} '{_handler_name(handler)}' cannot use positional-only "
+            f"dependency parameter '{parameter.name}'."
+        )
+
+    if not allow_depends:
+        raise ValueError(
+            f"{owner_kind} '{_handler_name(handler)}' cannot use nested Depends for "
+            f"parameter '{parameter.name}'. Only one dependency level is supported."
+        )
+
+    dependency = _build_dependency_definition(parameter.default.dependency, event_model)
+    return InjectedArgument(
+        parameter_name=parameter.name,
+        value_kind="dependency",
+        dependency=dependency,
+    )
+
+
+def _build_dependency_definition(
+    dependency: DependencyCallable,
+    event_model: type[HookEvent],
+) -> DependencyDefinition:
+    """Build the injection plan for one dependency callable.
+
+    :param dependency: Dependency callable to inspect.
+    :type dependency: DependencyCallable
+    :param event_model: Event model allowed for this route.
+    :type event_model: type[HookEvent]
+    :return: Dependency definition with its injection plan.
+    """
+    return DependencyDefinition(
+        dependency=dependency,
+        injected_arguments=_build_callable_injected_arguments(
+            dependency,
+            event_model,
+            owner_kind="Dependency",
+            allow_depends=False,
+        ),
+    )
+
+
+def _resolve_dependency(
+    argument: InjectedArgument,
+    request: CallbackRequest,
+    hook_event: HookEvent,
+    transport: DisplayTransport,
+    dependency_cache: dict[DependencyCallable, object],
+    exit_stack: ExitStack,
+) -> object:
+    """Resolve one dependency-backed injected value.
+
+    :param argument: Dependency-backed injected argument definition.
+    :type argument: InjectedArgument
+    :param request: Callback request wrapper.
+    :type request: CallbackRequest
+    :param hook_event: Typed event model.
+    :type hook_event: HookEvent
+    :param transport: Display transport used by the route handler.
+    :type transport: DisplayTransport
+    :param dependency_cache: Per-dispatch dependency value cache.
+    :type dependency_cache: dict[DependencyCallable, object]
+    :param exit_stack: Per-dispatch lifecycle stack for dependency cleanup.
+    :type exit_stack: ExitStack
+    :return: Dependency return value.
+    :raises ValueError: If the dependency definition is unexpectedly missing.
+    """
+    dependency = argument.dependency
+    if dependency is None:
+        raise ValueError(
+            f"Injected dependency parameter '{argument.parameter_name}' is missing a "
+            "dependency definition."
+        )
+
+    cached_value = dependency_cache.get(dependency.dependency, _MISSING_DEPENDENCY_VALUE)
+    if cached_value is not _MISSING_DEPENDENCY_VALUE:
+        return cached_value
+
+    keyword_arguments = {
+        nested_argument.parameter_name: _resolve_injected_value(
+            nested_argument,
+            request,
+            hook_event,
+            transport,
+            dependency_cache,
+            exit_stack,
+        )
+        for nested_argument in dependency.injected_arguments
+    }
+    result = _coerce_dependency_result(
+        dependency.dependency,
+        dependency.dependency(**keyword_arguments),
+        exit_stack,
+    )
+    dependency_cache[dependency.dependency] = result
+    return result
+
+
+def _coerce_dependency_result(
+    dependency: DependencyCallable,
+    result: object,
+    exit_stack: ExitStack,
+) -> object:
+    """Normalize one dependency result into an injected value.
+
+    :param dependency: Dependency callable that produced ``result``.
+    :type dependency: DependencyCallable
+    :param result: Raw dependency return value.
+    :type result: object
+    :param exit_stack: Per-dispatch lifecycle stack for dependency cleanup.
+    :type exit_stack: ExitStack
+    :return: Injected dependency value.
+    """
+    if _is_context_manager(result):
+        return exit_stack.enter_context(result)
+    if isgenerator(result):
+        return _enter_generator_dependency(
+            result,
+            dependency_name=_handler_name(dependency),
+            exit_stack=exit_stack,
+        )
+    return result
+
+
+def _is_context_manager(value: object) -> bool:
+    """Return whether one value behaves like a synchronous context manager.
+
+    :param value: Value to inspect.
+    :type value: object
+    :return: ``True`` when the value implements ``__enter__`` and ``__exit__``.
+    """
+    enter = getattr(value, "__enter__", None)
+    exit_ = getattr(value, "__exit__", None)
+    return callable(enter) and callable(exit_)
+
+
+def _enter_generator_dependency(
+    generator: Generator[object, None, None],
+    *,
+    dependency_name: str,
+    exit_stack: ExitStack,
+) -> object:
+    """Enter one generator dependency and register its teardown callback.
+
+    :param generator: Generator returned by a dependency callable.
+    :type generator: Generator[object, None, None]
+    :param dependency_name: Readable dependency name for error messages.
+    :type dependency_name: str
+    :param exit_stack: Per-dispatch lifecycle stack for dependency cleanup.
+    :type exit_stack: ExitStack
+    :return: Yielded dependency value with teardown managed by generator completion.
+    :raises ValueError: If the generator yields zero or more than one value.
+    """
+    try:
+        value = next(generator)
+    except StopIteration as error:
+        raise ValueError(
+            f"Dependency '{dependency_name}' must yield exactly one value."
+        ) from error
+
+    exit_stack.callback(
+        _close_generator_dependency,
+        generator,
+        dependency_name=dependency_name,
+    )
+    return value
+
+
+def _close_generator_dependency(
+    generator: Generator[object, None, None],
+    *,
+    dependency_name: str,
+) -> None:
+    """Complete one generator dependency during dispatch teardown.
+
+    :param generator: Generator returned by a dependency callable.
+    :type generator: Generator[object, None, None]
+    :param dependency_name: Readable dependency name for error messages.
+    :type dependency_name: str
+    :raises ValueError: If the generator yields more than one value.
+    """
+    try:
+        next(generator)
+    except StopIteration:
+        return
+    generator.close()
+    raise ValueError(
+        f"Dependency '{dependency_name}' must yield exactly one value."
+    )
+
+
+def _unsupported_parameter_message(
+    handler: RouteHandler | DependencyCallable,
+    parameter: Parameter,
+    event_model: type[HookEvent],
+    *,
+    owner_kind: str,
+    allow_depends: bool,
 ) -> str:
     """Build the validation error for an unsupported required parameter.
 
     :param handler: Handler registered for the route.
-    :type handler: RouteHandler
+    :type handler: RouteHandler | DependencyCallable
     :param parameter: Required parameter that cannot be injected.
     :type parameter: Parameter
     :param event_model: Event model allowed for this route.
     :type event_model: type[HookEvent]
+    :param owner_kind: Human-readable callable category used in errors.
+    :type owner_kind: str
+    :param allow_depends: Whether ``Depends(...)`` is supported for this callable.
+    :type allow_depends: bool
     :return: User-facing validation message.
     """
+    dependency_note = ""
+    if allow_depends:
+        dependency_note = ", declare a dependency with Depends(...),"
     return (
-        f"Handler '{_handler_name(handler)}' has unsupported required parameter "
+        f"{owner_kind} '{_handler_name(handler)}' has unsupported required parameter "
         f"'{parameter.name}'. Annotate injectable parameters with CallbackRequest, "
-        f"DisplayTransport, or {event_model.__name__}, or provide a default value."
+        f"DisplayTransport, or {event_model.__name__}{dependency_note} or provide a "
+        "default value."
     )
 
 
-def _handler_name(handler: RouteHandler) -> str:
-    """Return a readable name for a route handler.
+def _handler_name(handler: RouteHandler | DependencyCallable) -> str:
+    """Return a readable name for a callable.
 
-    :param handler: Handler callable.
-    :type handler: RouteHandler
-    :return: Best-effort handler name.
+    :param handler: Callable object.
+    :type handler: RouteHandler | DependencyCallable
+    :return: Best-effort callable name.
     """
     return getattr(handler, "__name__", handler.__class__.__name__)
 

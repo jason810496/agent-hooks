@@ -28,7 +28,7 @@ SAFE_BASH_PREFIXES = (
     "rg ",
 )
 
-app = AgentHook(fallback_to_default_processor=False)
+app = AgentHook(fallback_handler=None)
 
 
 def collect_referenced_paths(hook_event: PermissionRequestEvent) -> tuple[str, ...]:

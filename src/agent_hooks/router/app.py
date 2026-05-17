@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import IO
 
 from agent_hooks.config import RuntimeConfig
+from agent_hooks.default_handlers import DefaultHookHandler, HookFallbackHandler
 from agent_hooks.enums import HookEventName, HookProvider
 from agent_hooks.middleware import HookMiddleware, dispatch_with_middlewares
 from agent_hooks.models.events import (
@@ -18,7 +19,6 @@ from agent_hooks.models.events import (
 )
 from agent_hooks.models.schemas.hooks import HookInput
 from agent_hooks.models.schemas.processing import HookProcessingResult
-from agent_hooks.processor import process_notification_event, process_permission_request
 from agent_hooks.providers import provider_client
 from agent_hooks.router.definitions import (
     EventModelT,
@@ -38,23 +38,40 @@ from agent_hooks.router.request import CallbackRequest
 from agent_hooks.transport import DisplayTransport
 
 
+class _UnsetFallbackHandler:
+    """Represent an omitted fallback handler constructor argument."""
+
+
+_UNSET_FALLBACK_HANDLER = _UnsetFallbackHandler()
+
+
 class AgentHook:
     """Register decorator-based callback handlers and dispatch hook events."""
 
     def __init__(
         self,
         *,
-        fallback_to_default_processor: bool = True,
+        fallback_handler: HookFallbackHandler | None | _UnsetFallbackHandler = (
+            _UNSET_FALLBACK_HANDLER
+        ),
+        fallback_to_default_processor: bool | None = None,
         provider: HookProvider | str | None = None,
     ) -> None:
         """Initialize the hook router.
 
-        :param fallback_to_default_processor: Whether to keep the built-in processor as a fallback.
-        :type fallback_to_default_processor: bool
+        :param fallback_handler: Handler used when no route is registered for an event.
+        :type fallback_handler: HookFallbackHandler | None
+        :param fallback_to_default_processor: Deprecated compatibility flag for the built-in
+            fallback handler.
+        :type fallback_to_default_processor: bool | None
         :param provider: Optional default provider for parsing and response rendering.
         :type provider: HookProvider | str | None
+        :raises ValueError: If both fallback configuration styles are supplied.
         """
-        self._fallback_to_default_processor = fallback_to_default_processor
+        self._fallback_handler = self._resolve_fallback_handler(
+            fallback_handler=fallback_handler,
+            fallback_to_default_processor=fallback_to_default_processor,
+        )
         self._provider = HookProvider(provider) if isinstance(provider, str) else provider
         self._routes: dict[HookEventName, RouteDefinition] = {}
         self._middlewares: tuple[HookMiddleware, ...] = ()
@@ -122,7 +139,7 @@ class AgentHook:
 
         :param input_data: Parsed hook input.
         :type input_data: HookInput
-        :param transport: Display transport used by the fallback processor.
+        :param transport: Display transport used by the fallback handler.
         :type transport: DisplayTransport
         :return: Processing result used by logging and output emission.
         """
@@ -148,7 +165,7 @@ class AgentHook:
         """Dispatch a parsed payload after middleware has already run."""
         route = self._routes.get(input_data.payload.event_name)
         if route is None:
-            if self._fallback_to_default_processor:
+            if self._fallback_handler is not None:
                 return self._process_hook(input_data, transport)
             return empty_processing_result()
 
@@ -175,10 +192,37 @@ class AgentHook:
             return empty_processing_result(error=error)
 
         payload = input_data.payload
-        if payload.event_name == HookEventName.PERMISSION_REQUEST:
-            return process_permission_request(payload, transport, current_error=error)
+        handler = self._fallback_handler
+        if handler is None:
+            return empty_processing_result(error=error)
+        return handler.handle(payload, transport, current_error=error)
 
-        return process_notification_event(payload, transport, current_error=error)
+    def _resolve_fallback_handler(
+        self,
+        *,
+        fallback_handler: HookFallbackHandler | None | _UnsetFallbackHandler,
+        fallback_to_default_processor: bool | None,
+    ) -> HookFallbackHandler | None:
+        """Return the effective fallback handler for this router.
+
+        :param fallback_handler: Explicit fallback handler configuration.
+        :type fallback_handler: HookFallbackHandler | None | _UnsetFallbackHandler
+        :param fallback_to_default_processor: Deprecated compatibility flag.
+        :type fallback_to_default_processor: bool | None
+        :return: Effective fallback handler, or ``None`` when fallback is disabled.
+        :raises ValueError: If both fallback configuration styles are supplied.
+        """
+        if not isinstance(fallback_handler, _UnsetFallbackHandler):
+            if fallback_to_default_processor is not None:
+                raise ValueError(
+                    "Use fallback_handler or fallback_to_default_processor, not both."
+                )
+            return fallback_handler
+
+        if fallback_to_default_processor is False:
+            return None
+
+        return DefaultHookHandler()
 
     def run_callback(
         self,

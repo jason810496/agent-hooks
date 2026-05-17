@@ -15,7 +15,7 @@ from agent_hooks.enums import DialogButton
 FORCE_PUSH_FLAGS = frozenset({"--force", "--force-with-lease", "-f"})
 PROTECTED_BRANCHES = frozenset({"main", "master", "release"})
 
-app = AgentHook(fallback_to_default_processor=False)
+app = AgentHook(fallback_handler=None)
 
 
 def token_targets_protected_branch(token: str) -> bool:

@@ -64,7 +64,7 @@ def resolve_dialog_icon_path() -> str:
 
 
 class DisplayTransport(Protocol):
-    """Define the transport interface used by the processor."""
+    """Define the transport interface used by fallback handlers."""
 
     def send_notification(self, notification: NotificationSpec) -> AppleScriptResult:
         """Send a notification to the local UI layer.

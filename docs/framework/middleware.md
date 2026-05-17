@@ -17,7 +17,7 @@ Agent Hooks runs middleware in this order:
 
 1. provider middleware
 2. app middleware registered with `@app.middleware()`
-3. the final route dispatch or default processor
+3. the final route dispatch or fallback handler
 
 That ordering lets provider behavior stay close to protocol details while leaving room for app-level customization.
 
@@ -29,7 +29,7 @@ from __future__ import annotations
 from agent_hooks import AgentHook, HookResponse
 from agent_hooks.models.response import HookProcessingResult
 
-app = AgentHook(fallback_to_default_processor=False)
+app = AgentHook(fallback_handler=None)
 
 
 @app.middleware()

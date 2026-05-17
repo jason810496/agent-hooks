@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TypeAlias, TypeVar
+from typing import Literal, TypeAlias, TypeVar
 
 from agent_hooks.middleware import HookMiddleware
 from agent_hooks.models.events import HookEvent
@@ -16,6 +16,8 @@ HandlerResult: TypeAlias = HookProcessingResult | HookResponseProtocol | None
 RouteHandler: TypeAlias = Callable[..., HandlerResult]
 RouteDecorator: TypeAlias = Callable[[RouteHandler], RouteHandler]
 MiddlewareDecorator: TypeAlias = Callable[[HookMiddleware], HookMiddleware]
+DependencyCallable: TypeAlias = Callable[..., object]
+InjectionValueKind: TypeAlias = Literal["dependency", "event", "request", "transport"]
 
 
 @dataclass(frozen=True)
@@ -23,7 +25,16 @@ class InjectedArgument:
     """Store one handler parameter that should receive an injected value."""
 
     parameter_name: str
-    value_kind: str
+    value_kind: InjectionValueKind
+    dependency: DependencyDefinition | None = None
+
+
+@dataclass(frozen=True)
+class DependencyDefinition:
+    """Store one dependency callable and its injection plan."""
+
+    dependency: DependencyCallable
+    injected_arguments: tuple[InjectedArgument, ...]
 
 
 @dataclass(frozen=True)
@@ -36,9 +47,12 @@ class RouteDefinition:
 
 
 __all__ = [
+    "DependencyCallable",
+    "DependencyDefinition",
     "EventModelT",
     "HandlerResult",
     "InjectedArgument",
+    "InjectionValueKind",
     "MiddlewareDecorator",
     "RouteDefinition",
     "RouteDecorator",

@@ -17,7 +17,7 @@ CANDIDATE_FILES = (
 )
 MAX_CONTEXT_LENGTH = 1800
 
-app = AgentHook(fallback_to_default_processor=False, provider=HookProvider.CODEX)
+app = AgentHook(fallback_handler=None, provider=HookProvider.CODEX)
 
 
 def preview_file(path: Path, *, max_lines: int = 8, max_characters: int = 400) -> str:

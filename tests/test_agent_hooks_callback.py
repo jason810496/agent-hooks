@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from contextlib import contextmanager
 from dataclasses import fields
 from io import StringIO
 from pathlib import Path
@@ -12,6 +13,8 @@ import agent_hooks.runner as runner_module
 from agent_hooks import (
     AgentHook,
     CallbackRequest,
+    DefaultHookHandler,
+    Depends,
     NotificationEvent,
     PermissionRequestEvent,
     PostToolUseEvent,
@@ -29,6 +32,10 @@ from agent_hooks.config import (
     RuntimeConfig,
     load_runtime_config,
 )
+from agent_hooks.default_handlers import (
+    build_permission_response,
+    process_permission_request,
+)
 from agent_hooks.enums import (
     AppleScriptInvocation,
     DialogButton,
@@ -44,11 +51,8 @@ from agent_hooks.models.response import (
     HookProcessingResult,
     HookResponse,
 )
+from agent_hooks.models.schemas.hooks import HookPayload
 from agent_hooks.parsing import build_hook_payload, read_hook_input
-from agent_hooks.processor import (
-    build_permission_response,
-    process_permission_request,
-)
 from agent_hooks.providers import provider_client
 from agent_hooks.providers.codex.middleware import (
     CODEX_EXECPOLICY_RULES_ENV_VAR,
@@ -138,7 +142,7 @@ def write_app_module(
                 "",
                 "from agent_hooks import AgentHook",
                 "",
-                f"{variable_name} = AgentHook(fallback_to_default_processor=False)",
+                f"{variable_name} = AgentHook(fallback_handler=None)",
                 extra_body,
                 "",
             )
@@ -441,6 +445,82 @@ class TestPermissionResponse:
 
 
 class TestAgentHookFallback:
+    def test_dispatch_uses_configured_fallback_handler(self) -> None:
+        class CustomFallbackHandler:
+            def __init__(self) -> None:
+                self.seen_events: list[HookEventName] = []
+
+            def handle(
+                self,
+                payload: HookPayload,
+                transport: DisplayTransport,
+                *,
+                current_error: str | None = None,
+            ) -> HookProcessingResult:
+                self.seen_events.append(payload.event_name)
+                assert current_error is None
+                assert isinstance(transport, FakeTransport)
+                return HookProcessingResult(
+                    display=None,
+                    transport_result=None,
+                    response=HookResponse(suppress_output=False),
+                )
+
+        fallback_handler = CustomFallbackHandler()
+        hook = AgentHook(fallback_handler=fallback_handler)
+        input_data = read_hook_input(StringIO('{"hook_event_name":"PermissionRequest"}'))
+
+        result = hook.dispatch(input_data, FakeTransport())
+
+        assert fallback_handler.seen_events == [HookEventName.PERMISSION_REQUEST]
+        assert result.response.as_payload() == {"suppressOutput": False}
+
+    def test_fallback_handler_none_disables_fallback(self) -> None:
+        hook = AgentHook(fallback_handler=None)
+        input_data = read_hook_input(StringIO('{"hook_event_name":"PermissionRequest"}'))
+        transport = FakeTransport()
+
+        result = hook.dispatch(input_data, transport)
+
+        assert transport.dialog_calls == 0
+        assert result.response.as_payload() == {"suppressOutput": True}
+
+    def test_legacy_fallback_flag_false_disables_fallback(self) -> None:
+        hook = AgentHook(fallback_to_default_processor=False)
+        input_data = read_hook_input(StringIO('{"hook_event_name":"PermissionRequest"}'))
+        transport = FakeTransport()
+
+        result = hook.dispatch(input_data, transport)
+
+        assert transport.dialog_calls == 0
+        assert result.response.as_payload() == {"suppressOutput": True}
+
+    def test_default_hook_handler_handles_permission_request(self) -> None:
+        hook = AgentHook(fallback_handler=DefaultHookHandler())
+        input_data = read_hook_input(StringIO('{"hook_event_name":"PermissionRequest"}'))
+        transport = FakeTransport()
+
+        result = hook.dispatch(input_data, transport)
+
+        assert transport.dialog_calls == 1
+        assert result.response.as_payload() == {
+            "suppressOutput": True,
+            "hookSpecificOutput": {
+                "hookEventName": "PermissionRequest",
+                "decision": {"behavior": "allow"},
+            },
+        }
+
+    def test_rejects_mixed_fallback_configuration_styles(self) -> None:
+        with pytest.raises(
+            ValueError,
+            match="Use fallback_handler or fallback_to_default_processor",
+        ):
+            AgentHook(
+                fallback_handler=DefaultHookHandler(),
+                fallback_to_default_processor=False,
+            )
+
     def test_notification_failure_surfaces_transport_error(self) -> None:
         input_data = read_hook_input(
             StringIO(
@@ -735,7 +815,7 @@ class TestAgentHook:
         assert unexpected_fields.isdisjoint(field_names)
 
     def test_router_middleware_wraps_dispatch(self) -> None:
-        hook = AgentHook(fallback_to_default_processor=False)
+        hook = AgentHook(fallback_handler=None)
         seen_tools: list[str] = []
 
         @hook.middleware()
@@ -785,7 +865,7 @@ class TestAgentHook:
         assert result.response.as_payload() == {"suppressOutput": False}
 
     def test_permission_decorator_supports_transport_injection(self) -> None:
-        hook = AgentHook(fallback_to_default_processor=False)
+        hook = AgentHook(fallback_handler=None)
 
         @hook.permission()
         def permission_callback(
@@ -861,8 +941,117 @@ class TestAgentHook:
             },
         }
 
+    def test_permission_decorator_supports_depends_injection(self) -> None:
+        hook = AgentHook()
+
+        def build_command_context(
+            request: CallbackRequest,
+            hook_event: PermissionRequestEvent,
+        ) -> str:
+            assert request.payload.tool_name == hook_event.tool_name
+            return f"{hook_event.tool_name}:{hook_event.tool_input.command}"
+
+        @hook.permission()
+        def permission_callback(
+            command_context: str = Depends(build_command_context),
+        ) -> HookResponse:
+            assert command_context == "Bash:git status"
+            return HookResponse(suppress_output=False)
+
+        input_data = read_hook_input(
+            StringIO(
+                """
+                {
+                  "hook_event_name": "PermissionRequest",
+                  "tool_name": "Bash",
+                  "tool_input": {"command": "git status"}
+                }
+                """
+            )
+        )
+
+        result = hook.dispatch(input_data, FakeTransport())
+
+        assert result.response.as_payload() == {"suppressOutput": False}
+
+    def test_permission_decorator_supports_yield_dependency_cleanup(self) -> None:
+        hook = AgentHook()
+        events: list[str] = []
+
+        def open_connection() -> object:
+            events.append("open")
+            try:
+                yield "db-session"
+            finally:
+                events.append("close")
+
+        @hook.permission()
+        def permission_callback(
+            connection: str = Depends(open_connection),
+        ) -> HookResponse:
+            events.append(f"use:{connection}")
+            return HookResponse(suppress_output=False)
+
+        input_data = read_hook_input(StringIO('{"hook_event_name":"PermissionRequest"}'))
+
+        result = hook.dispatch(input_data, FakeTransport())
+
+        assert result.response.as_payload() == {"suppressOutput": False}
+        assert events == ["open", "use:db-session", "close"]
+
+    def test_permission_decorator_supports_contextmanager_dependency(self) -> None:
+        hook = AgentHook()
+        events: list[str] = []
+
+        @contextmanager
+        def open_connection() -> object:
+            events.append("open")
+            try:
+                yield "db-session"
+            finally:
+                events.append("close")
+
+        @hook.permission()
+        def permission_callback(
+            connection: str = Depends(open_connection),
+        ) -> HookResponse:
+            events.append(f"use:{connection}")
+            return HookResponse(suppress_output=False)
+
+        input_data = read_hook_input(StringIO('{"hook_event_name":"PermissionRequest"}'))
+
+        result = hook.dispatch(input_data, FakeTransport())
+
+        assert result.response.as_payload() == {"suppressOutput": False}
+        assert events == ["open", "use:db-session", "close"]
+
+    def test_yield_dependency_cleanup_runs_when_handler_raises(self) -> None:
+        hook = AgentHook()
+        events: list[str] = []
+
+        def open_connection() -> object:
+            events.append("open")
+            try:
+                yield "db-session"
+            finally:
+                events.append("close")
+
+        @hook.permission()
+        def permission_callback(
+            connection: str = Depends(open_connection),
+        ) -> HookResponse:
+            events.append(f"use:{connection}")
+            raise RuntimeError("boom")
+
+        input_data = read_hook_input(StringIO('{"hook_event_name":"PermissionRequest"}'))
+
+        with pytest.raises(RuntimeError, match="boom"):
+            hook.dispatch(input_data, FakeTransport())
+
+        assert events == ["open", "use:db-session", "close"]
+
     def test_notification_decorator_injects_notification_specific_schema(self) -> None:
-        hook = AgentHook(fallback_to_default_processor=False)
+        hook = AgentHook(fallback_handler=None)
 
         @hook.notification()
         def notification_callback(hook_event: NotificationEvent) -> HookResponse:
@@ -928,7 +1117,7 @@ class TestAgentHook:
 
         assert result.response.as_payload() == {"suppressOutput": False}
 
-    def test_dispatch_falls_back_to_default_processor(self) -> None:
+    def test_dispatch_falls_back_to_default_handler(self) -> None:
         hook = AgentHook()
         input_data = read_hook_input(
             StringIO(
@@ -998,6 +1187,76 @@ class TestAgentHook:
             ) -> AppleScriptDialogResponse:
                 assert request.payload.event_name == hook_event.event_name
                 return build_permission_response(DialogButton.DENY, hook_event)
+
+    def test_registering_nested_depends_raises_value_error(self) -> None:
+        hook = AgentHook()
+
+        def build_tool_name(request: CallbackRequest) -> str:
+            return request.payload.tool_name
+
+        def build_context(tool_name: str = Depends(build_tool_name)) -> str:
+            return tool_name
+
+        with pytest.raises(ValueError, match="Only one dependency level is supported"):
+
+            @hook.permission()
+            def permission_callback(
+                context: str = Depends(build_context),
+            ) -> HookResponse:
+                return HookResponse(suppress_output=False)
+
+    def test_registering_dependency_with_unsupported_parameter_raises_value_error(self) -> None:
+        hook = AgentHook()
+
+        def build_context(label) -> str:
+            return label
+
+        with pytest.raises(
+            ValueError,
+            match="Dependency 'build_context' has unsupported required parameter 'label'",
+        ):
+
+            @hook.permission()
+            def permission_callback(
+                context: str = Depends(build_context),
+            ) -> HookResponse:
+                return HookResponse(suppress_output=False)
+
+    def test_dispatch_raises_for_yield_dependency_without_value(self) -> None:
+        hook = AgentHook()
+
+        def open_connection() -> object:
+            if False:
+                yield "db-session"
+
+        @hook.permission()
+        def permission_callback(
+            connection: str = Depends(open_connection),
+        ) -> HookResponse:
+            return HookResponse(suppress_output=False)
+
+        input_data = read_hook_input(StringIO('{"hook_event_name":"PermissionRequest"}'))
+
+        with pytest.raises(ValueError, match="must yield exactly one value"):
+            hook.dispatch(input_data, FakeTransport())
+
+    def test_dispatch_raises_for_yield_dependency_with_multiple_values(self) -> None:
+        hook = AgentHook()
+
+        def open_connection() -> object:
+            yield "db-session"
+            yield "db-session-2"
+
+        @hook.permission()
+        def permission_callback(
+            connection: str = Depends(open_connection),
+        ) -> HookResponse:
+            return HookResponse(suppress_output=False)
+
+        input_data = read_hook_input(StringIO('{"hook_event_name":"PermissionRequest"}'))
+
+        with pytest.raises(ValueError, match="must yield exactly one value"):
+            hook.dispatch(input_data, FakeTransport())
 
 
 class TestRuntimeConfig:

@@ -25,7 +25,7 @@ from agent_hooks.enums import HookControlDecision
 DEFAULT_STATE_DIRECTORY = ".agent-hooks/test-before-stop"
 STATE_DIRECTORY_ENV_VAR = "AGENT_HOOK_TEST_BEFORE_STOP_DIR"
 
-app = AgentHook(fallback_to_default_processor=False, provider=HookProvider.CODEX)
+app = AgentHook(fallback_handler=None, provider=HookProvider.CODEX)
 
 
 def resolve_state_path(session_id: str, cwd: str) -> Path:

@@ -19,7 +19,7 @@ from agent_hooks import (
 
 DEFAULT_JOURNAL_DIRECTORY = ".agent-hooks/session-journal"
 
-app = AgentHook(fallback_to_default_processor=False, provider=HookProvider.CODEX)
+app = AgentHook(fallback_handler=None, provider=HookProvider.CODEX)
 
 
 def now_timestamp() -> str:

@@ -24,19 +24,24 @@ Route-specific models:
 
 ## Injection Types
 
-The router can inject these values by annotation:
+The router can inject these values by parameter annotation or `Depends(...)` defaults:
 
 - the route's event model
 - `CallbackRequest`
 - `DisplayTransport`
+- one-level dependencies declared with `Depends(...)`
 
 Example:
 
 ```python
 from __future__ import annotations
 
-from agent_hooks import CallbackRequest, PermissionRequestEvent
+from agent_hooks import CallbackRequest, Depends, PermissionRequestEvent
 from agent_hooks.transport import DisplayTransport
+
+
+def build_command(request: CallbackRequest) -> str:
+    return request.payload.tool_input.command
 
 
 @app.permission()
@@ -44,9 +49,42 @@ def permission_handler(
     hook_event: PermissionRequestEvent,
     request: CallbackRequest,
     transport: DisplayTransport,
+    command: str = Depends(build_command),
 ):
     ...
 ```
+
+Dependency callables can themselves receive `CallbackRequest`, `DisplayTransport`, or the route event model.
+
+They can also manage resources by yielding exactly one value:
+
+```python
+from agent_hooks import Depends
+
+
+def get_db():
+    db = connect_db()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+@app.permission()
+def permission_handler(db = Depends(get_db)):
+    ...
+```
+
+The router injects the yielded value and runs the teardown after the handler returns or raises.
+
+## Dependency Limit
+
+`Depends(...)` is intentionally shallow in the current implementation.
+
+- route handlers can declare dependencies
+- dependency callables cannot declare their own `Depends(...)`
+
+If you try to nest dependencies, route registration fails with a `ValueError`.
 
 ## Normalized Event Mapping
 

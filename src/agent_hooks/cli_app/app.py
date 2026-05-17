@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from agent_hooks.default_handlers import DefaultHookHandler
 from agent_hooks.models.events import (
     NotificationEvent,
     PermissionRequestEvent,
@@ -12,11 +13,11 @@ from agent_hooks.models.events import (
     UserPromptSubmitEvent,
 )
 from agent_hooks.models.response import HookProcessingResult, HookResponse
-from agent_hooks.processor import process_notification_event, process_permission_request
 from agent_hooks.router import AgentHook
 from agent_hooks.transport import DisplayTransport
 
-app = AgentHook(fallback_to_default_processor=False)
+default_handler = DefaultHookHandler()
+app = AgentHook(fallback_handler=None)
 
 
 @app.notification()
@@ -25,7 +26,7 @@ def notification_handler(
     transport: DisplayTransport,
 ) -> HookProcessingResult:
     """Handle built-in notification events."""
-    return process_notification_event(hook_event, transport)
+    return default_handler.handle_notification_event(hook_event, transport)
 
 
 @app.permission()
@@ -34,7 +35,7 @@ def permission_handler(
     transport: DisplayTransport,
 ) -> HookProcessingResult:
     """Handle Claude permission requests and Codex pre-tool-use events."""
-    return process_permission_request(hook_event, transport)
+    return default_handler.handle_permission_request(hook_event, transport)
 
 
 @app.session_start()
@@ -61,7 +62,7 @@ def stop_handler(
     transport: DisplayTransport,
 ) -> HookProcessingResult:
     """Handle built-in stop events."""
-    return process_notification_event(hook_event, transport)
+    return default_handler.handle_notification_event(hook_event, transport)
 
 
 @app.stop_failure()
@@ -70,7 +71,7 @@ def stop_failure_handler(
     transport: DisplayTransport,
 ) -> HookProcessingResult:
     """Handle built-in failed-stop events."""
-    return process_notification_event(hook_event, transport)
+    return default_handler.handle_notification_event(hook_event, transport)
 
 
-__all__ = ["app"]
+__all__ = ["app", "default_handler"]

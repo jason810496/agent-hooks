@@ -10,11 +10,13 @@ from agent_hooks.router.definitions import (
     RouteDecorator,
     RouteHandler,
 )
+from agent_hooks.router.dependencies import Depends
 from agent_hooks.router.request import CallbackRequest
 
 __all__ = [
     "AgentHook",
     "CallbackRequest",
+    "Depends",
     "EventModelT",
     "HandlerResult",
     "MiddlewareDecorator",

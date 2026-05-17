@@ -24,7 +24,7 @@ SAFE_BASH_RULE_PREFIXES = (
     "rg ",
 )
 
-app = AgentHook(fallback_to_default_processor=False, provider=HookProvider.CLAUDE_CODE)
+app = AgentHook(fallback_handler=None, provider=HookProvider.CLAUDE_CODE)
 
 
 def command_is_safe(command: str) -> bool:

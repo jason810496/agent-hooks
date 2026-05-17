@@ -10,7 +10,7 @@ stdin JSON
   -> normalized HookPayload
   -> provider middleware
   -> app middleware
-  -> registered route or default processor
+  -> registered route or fallback handler
   -> macOS transport when needed
   -> provider-specific stdout JSON
   -> application + audit logs
@@ -45,9 +45,9 @@ This is where the Codex `execpolicy` shortcut lives.
 The callback is dispatched through either:
 
 - a registered `AgentHook` route
-- or the default processor
+- or the fallback handler
 
-The default processor owns the generic built-in permission and notification flow.
+The default fallback handler owns the generic built-in permission and notification flow.
 
 ## 6. Transport
 
