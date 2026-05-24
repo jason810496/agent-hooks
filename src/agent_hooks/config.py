@@ -18,12 +18,14 @@ DEFAULT_LOG_DIRECTORY_NAME = "logs"
 DEFAULT_APPLICATION_LOG_FILENAME = "hooks.log"
 DEFAULT_INPUT_AUDIT_LOG_FILENAME = "hooks.raw.log"
 DEFAULT_RESPONSE_AUDIT_LOG_FILENAME = "hooks.response.log"
+DEFAULT_DIALOG_FONT_SIZE = 13
 
 APPLICATION_LOG_FORMAT_ENV_VAR = "AGENT_HOOK_APP_LOG_FORMAT"
 APPLICATION_LOG_LEVEL_ENV_VAR = "AGENT_HOOK_APP_LOG_LEVEL"
 APPLICATION_LOG_PATH_ENV_VAR = "AGENT_HOOK_APP_LOG_PATH"
 APPLICATION_LOG_MAX_BYTES_ENV_VAR = "AGENT_HOOK_APP_LOG_MAX_BYTES"
 APPLICATION_LOG_BACKUP_COUNT_ENV_VAR = "AGENT_HOOK_APP_LOG_BACKUP_COUNT"
+DIALOG_FONT_SIZE_ENV_VAR = "AGENT_HOOK_DIALOG_FONT_SIZE"
 PROVIDER_ENV_VAR = "AGENT_HOOK_PROVIDER"
 DISABLE_OSASCRIPT_ENV_VARS = (
     "AGENT_HOOK_DISABLE_OSASCRIPT",
@@ -88,6 +90,7 @@ class RuntimeConfig:
     skip_osascript: bool
     application_logging: ApplicationLoggingConfig
     audit_logging: AuditLoggingConfig
+    dialog_font_size: int = DEFAULT_DIALOG_FONT_SIZE
     warnings: tuple[str, ...] = ()
 
     @property
@@ -186,6 +189,12 @@ def load_runtime_config(env: Mapping[str, str] | None = None) -> RuntimeConfig:
         PROVIDER_ENV_VAR,
         warnings=warnings,
     )
+    dialog_font_size = read_positive_int_env(
+        environment,
+        DIALOG_FONT_SIZE_ENV_VAR,
+        default=DEFAULT_DIALOG_FONT_SIZE,
+        warnings=warnings,
+    )
 
     return RuntimeConfig(
         project_root=project_root,
@@ -202,6 +211,7 @@ def load_runtime_config(env: Mapping[str, str] | None = None) -> RuntimeConfig:
             input_file=input_audit_file,
             response_file=response_audit_file,
         ),
+        dialog_font_size=dialog_font_size,
         warnings=tuple(warnings),
     )
 
@@ -381,6 +391,42 @@ def read_non_negative_int_env(
         return value
 
     return default
+
+
+def read_positive_int_env(
+    env: Mapping[str, str],
+    env_var: str,
+    *,
+    default: int,
+    warnings: list[str],
+) -> int:
+    """Parse an optional positive integer from the environment.
+
+    :param env: Environment mapping to read from.
+    :type env: Mapping[str, str]
+    :param env_var: Variable name to read.
+    :type env_var: str
+    :param default: Default value when no valid override exists.
+    :type default: int
+    :param warnings: Accumulator for config warnings.
+    :type warnings: list[str]
+    :return: Parsed positive integer, or the default.
+    """
+    raw_value = env.get(env_var)
+    if raw_value is None or not raw_value.strip():
+        return default
+
+    try:
+        value = int(raw_value)
+    except ValueError:
+        warnings.append(f"Invalid integer value for {env_var}: {raw_value!r}. Using fallback.")
+        return default
+
+    if value <= 0:
+        warnings.append(f"Non-positive integer value for {env_var}: {raw_value!r}. Using fallback.")
+        return default
+
+    return value
 
 
 def read_path_env(

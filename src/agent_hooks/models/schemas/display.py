@@ -31,6 +31,7 @@ class DialogSpec:
     message: str
     buttons: tuple[DialogButton, ...]
     default_button: DialogButton
+    font_size: int | None = None
 
 
 DisplaySpec: TypeAlias = NotificationSpec | DialogSpec

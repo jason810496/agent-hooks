@@ -34,6 +34,19 @@ Accepted false values:
 !!! note "Testing mode"
     Set `AGENT_HOOK_DISABLE_OSASCRIPT=1` when you want to validate callback behavior without opening macOS dialogs or notifications.
 
+## Dialog Controls
+
+- `AGENT_HOOK_DIALOG_FONT_SIZE`
+
+Set this to a positive point size when you want larger or smaller macOS permission dialog text. Leave it unset to use the default `13` point dialog font size.
+
+Smoke test the setting with a local permission dialog:
+
+```bash
+printf '%s\n' '{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"git status"}}' \
+  | AGENT_HOOK_DIALOG_FONT_SIZE=18 agent-hooks callback --provider claude-code
+```
+
 ## Project Root And Paths
 
 - `AGENT_HOOK_PROJECT_ROOT`

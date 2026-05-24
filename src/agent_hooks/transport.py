@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from typing import Protocol
 
+from agent_hooks.config import DEFAULT_DIALOG_FONT_SIZE
 from agent_hooks.enums import AppleScriptInvocation, DialogButton, TransportStatus
 from agent_hooks.models.schemas.display import (
     AppleScriptResult,
@@ -36,21 +37,98 @@ end run
 """.strip()
 
 DIALOG_SCRIPT = """
+use framework "AppKit"
+use scripting additions
+
 on run argv
     set theMessage to item 1 of argv
     set theTitle to item 2 of argv
     set theDefault to item 3 of argv
     set theIconPath to item 4 of argv
+    set theFontSize to (item 5 of argv) as real
     set buttonList to {}
-    repeat with i from 5 to (count of argv)
+    repeat with i from 6 to (count of argv)
         set end of buttonList to item i of argv
     end repeat
-    if theIconPath is "" then
-        display dialog theMessage with title theTitle buttons buttonList default button theDefault with icon caution
-    else
-        display dialog theMessage with title theTitle buttons buttonList default button theDefault with icon (POSIX file theIconPath)
+
+    set alert to current application's NSAlert's alloc()'s init()
+    alert's setMessageText:theTitle
+    alert's setInformativeText:theMessage
+    repeat with buttonTitle in buttonList
+        alert's addButtonWithTitle:(buttonTitle as text)
+    end repeat
+    my setAlertIcon(alert, theIconPath)
+    alert's layout()
+    my setAlertFontSize(alert, theFontSize)
+    my setDefaultButton(alert, theDefault)
+    alert's layout()
+
+    set responseCode to (alert's runModal()) as integer
+    set buttonIndex to responseCode - 999
+    if buttonIndex < 1 or buttonIndex > (count of buttonList) then
+        return ""
     end if
+    return "button returned:" & (item buttonIndex of buttonList)
 end run
+
+on setAlertIcon(alert, theIconPath)
+    if theIconPath is "" then
+        return
+    end if
+
+    set iconImage to current application's NSImage's alloc()'s initWithContentsOfFile:theIconPath
+    if iconImage is not missing value then
+        alert's setIcon:iconImage
+    end if
+end setAlertIcon
+
+on setAlertFontSize(alert, theFontSize)
+    set contentView to alert's |window|()'s contentView()
+    my setSubviewFontSize(contentView, theFontSize)
+    repeat with alertButton in (alert's buttons())
+        set sourceFont to alertButton's |font|()
+        set buttonFont to my resizedFont(sourceFont, theFontSize)
+        alertButton's setFont:buttonFont
+    end repeat
+end setAlertFontSize
+
+on setSubviewFontSize(parentView, theFontSize)
+    repeat with childView in (parentView's subviews())
+        if ((childView's isKindOfClass:(current application's NSTextField)) as boolean) then
+            set sourceFont to childView's |font|()
+            set textFont to my resizedFont(sourceFont, theFontSize)
+            childView's setFont:textFont
+            my setTextFieldAttributedFont(childView, textFont)
+        end if
+        my setSubviewFontSize(childView, theFontSize)
+    end repeat
+end setSubviewFontSize
+
+on setTextFieldAttributedFont(textField, textFont)
+    set textValue to textField's stringValue()
+    set textAttributes to current application's NSDictionary's dictionaryWithObject:textFont forKey:(current application's NSFontAttributeName)
+    set attributedText to current application's NSAttributedString's alloc()'s initWithString:textValue attributes:textAttributes
+    textField's setAttributedStringValue:attributedText
+end setTextFieldAttributedFont
+
+on resizedFont(sourceFont, theFontSize)
+    if sourceFont is missing value then
+        return current application's NSFont's systemFontOfSize:theFontSize
+    end if
+
+    set fontManager to current application's NSFontManager's sharedFontManager()
+    return fontManager's convertFont:sourceFont toSize:theFontSize
+end resizedFont
+
+on setDefaultButton(alert, theDefault)
+    repeat with alertButton in (alert's buttons())
+        if ((alertButton's title()) as text) is theDefault then
+            alertButton's setKeyEquivalent:(character id 13)
+        else
+            alertButton's setKeyEquivalent:""
+        end if
+    end repeat
+end setDefaultButton
 """.strip()
 
 OSASCRIPT_LOGO_PATH = Path(__file__).resolve().parent / "assets" / "osascript-logo.png"
@@ -88,13 +166,21 @@ class DisplayTransport(Protocol):
 class AppleScriptTransport:
     """Execute AppleScript through the local ``osascript`` binary."""
 
-    def __init__(self, *, skip_osascript: bool) -> None:
+    def __init__(
+        self,
+        *,
+        skip_osascript: bool,
+        dialog_font_size: int = DEFAULT_DIALOG_FONT_SIZE,
+    ) -> None:
         """Initialize the transport configuration.
 
         :param skip_osascript: Whether AppleScript execution is disabled.
         :type skip_osascript: bool
+        :param dialog_font_size: Dialog font size in points.
+        :type dialog_font_size: int
         """
         self._skip_osascript = skip_osascript
+        self._dialog_font_size = dialog_font_size
         self._binary = shutil.which("osascript")
 
     def send_notification(self, notification: NotificationSpec) -> AppleScriptResult:
@@ -122,6 +208,7 @@ class AppleScriptTransport:
         :type dialog: DialogSpec
         :return: Dialog result with button selection.
         """
+        dialog_font_size = self._resolve_dialog_font_size(dialog)
         transport = self._run_osascript(
             invocation=AppleScriptInvocation.DIALOG,
             arguments=[
@@ -129,6 +216,7 @@ class AppleScriptTransport:
                 dialog.title,
                 dialog.default_button.value,
                 resolve_dialog_icon_path(),
+                str(dialog_font_size),
                 *(button.value for button in dialog.buttons),
             ],
             script=DIALOG_SCRIPT,
@@ -139,6 +227,18 @@ class AppleScriptTransport:
             else None
         )
         return DialogResult(button=button, transport=transport)
+
+    def _resolve_dialog_font_size(self, dialog: DialogSpec) -> int:
+        """Return the effective positive dialog font size.
+
+        :param dialog: Dialog specification.
+        :type dialog: DialogSpec
+        :return: Configured positive font size.
+        """
+        font_size = dialog.font_size if dialog.font_size is not None else self._dialog_font_size
+        if font_size <= 0:
+            return DEFAULT_DIALOG_FONT_SIZE
+        return font_size
 
     def _run_osascript(
         self,

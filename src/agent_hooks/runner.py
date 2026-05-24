@@ -323,7 +323,10 @@ def run_callback(
         ),
         config.audit_logging.input_file,
     )
-    display_transport = transport or AppleScriptTransport(skip_osascript=config.skip_osascript)
+    display_transport = transport or AppleScriptTransport(
+        skip_osascript=config.skip_osascript,
+        dialog_font_size=config.dialog_font_size,
+    )
     result = hook.dispatch(input_data, display_transport)
     response_text = _render_hook_response(
         result.response,

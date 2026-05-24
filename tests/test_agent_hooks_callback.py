@@ -26,6 +26,7 @@ from agent_hooks import (
 from agent_hooks.cli_app.app import app
 from agent_hooks.cli_app.cli import main as cli_main
 from agent_hooks.config import (
+    DEFAULT_DIALOG_FONT_SIZE,
     ApplicationLoggingConfig,
     AuditLoggingConfig,
     FileLoggingConfig,
@@ -97,6 +98,7 @@ def build_runtime_config(
     tmp_path: Path,
     *,
     provider: HookProvider = HookProvider.CLAUDE_CODE,
+    dialog_font_size: int = DEFAULT_DIALOG_FONT_SIZE,
 ) -> RuntimeConfig:
     return RuntimeConfig(
         project_root=tmp_path,
@@ -125,6 +127,7 @@ def build_runtime_config(
                 backup_count=1,
             ),
         ),
+        dialog_font_size=dialog_font_size,
     )
 
 
@@ -1272,6 +1275,7 @@ class TestRuntimeConfig:
             "AGENT_HOOK_LOG_MAX_BYTES": "2048",
             "AGENT_HOOK_LOG_BACKUP_COUNT": "6",
             "AGENT_HOOK_RESPONSE_AUDIT_LOG_PATH": "runtime/response.log",
+            "AGENT_HOOK_DIALOG_FONT_SIZE": "18",
         }
 
         config = load_runtime_config(env)
@@ -1287,11 +1291,21 @@ class TestRuntimeConfig:
         assert config.audit_logging.input_file.max_bytes == 2048
         assert config.audit_logging.response_file.backup_count == 6
         assert config.audit_logging.response_file.path == tmp_path / "runtime" / "response.log"
+        assert config.dialog_font_size == 18
 
     def test_load_runtime_config_leaves_provider_unset_by_default(self) -> None:
         config = load_runtime_config({})
 
         assert config.provider is None
+        assert config.dialog_font_size == DEFAULT_DIALOG_FONT_SIZE
+
+    def test_load_runtime_config_ignores_invalid_dialog_font_size(self) -> None:
+        config = load_runtime_config({"AGENT_HOOK_DIALOG_FONT_SIZE": "0"})
+
+        assert config.dialog_font_size == DEFAULT_DIALOG_FONT_SIZE
+        assert config.warnings == (
+            "Non-positive integer value for AGENT_HOOK_DIALOG_FONT_SIZE: '0'. Using fallback.",
+        )
 
 
 class TestAgentHookFileLoader:
@@ -1390,6 +1404,64 @@ class TestRunCallback:
         assert '"hook_event_name": "PermissionRequest"' in app_log
         expected_response_bytes = len(stdout.getvalue().encode("utf-8"))
         assert f'"response_bytes": {expected_response_bytes}' in app_log
+
+    def test_run_callback_passes_dialog_font_size_to_default_transport(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        captured_init: dict[str, object] = {}
+
+        class FakeAppleScriptTransport:
+            def __init__(
+                self,
+                *,
+                skip_osascript: bool,
+                dialog_font_size: int = DEFAULT_DIALOG_FONT_SIZE,
+            ) -> None:
+                captured_init["skip_osascript"] = skip_osascript
+                captured_init["dialog_font_size"] = dialog_font_size
+
+            def send_notification(self, notification: object) -> AppleScriptResult:
+                return AppleScriptResult(
+                    status=TransportStatus.SUCCEEDED,
+                    invocation=AppleScriptInvocation.NOTIFICATION,
+                )
+
+            def show_dialog(self, dialog: object) -> DialogResult:
+                return DialogResult(
+                    button=DialogButton.ALLOW_ONCE,
+                    transport=AppleScriptResult(
+                        status=TransportStatus.SUCCEEDED,
+                        invocation=AppleScriptInvocation.DIALOG,
+                    ),
+                )
+
+        stdin = StringIO(
+            """
+            {
+              "hook_event_name": "PermissionRequest",
+              "tool_name": "Bash",
+              "tool_input": {"command": "git status"}
+            }
+            """
+        )
+        stdout = StringIO()
+        runtime_config = build_runtime_config(tmp_path, dialog_font_size=21)
+        monkeypatch.setattr(runner_module, "AppleScriptTransport", FakeAppleScriptTransport)
+
+        exit_code = run_callback(
+            app,
+            stdin=stdin,
+            stdout=stdout,
+            runtime_config=runtime_config,
+        )
+
+        assert exit_code == 0
+        assert captured_init == {
+            "skip_osascript": True,
+            "dialog_font_size": 21,
+        }
 
     def test_run_callback_supports_codex_provider(
         self,

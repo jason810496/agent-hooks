@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import shutil
+import subprocess
 from pathlib import Path
 
+import pytest
+
+from agent_hooks.config import DEFAULT_DIALOG_FONT_SIZE
 from agent_hooks.enums import AppleScriptInvocation, DialogButton, TransportStatus
 from agent_hooks.models.response import AppleScriptResult, DialogSpec
-from agent_hooks.transport import AppleScriptTransport, resolve_dialog_icon_path
+from agent_hooks.transport import DIALOG_SCRIPT, AppleScriptTransport, resolve_dialog_icon_path
 
 
 def test_resolve_dialog_icon_path_returns_packaged_logo() -> None:
@@ -12,6 +17,80 @@ def test_resolve_dialog_icon_path_returns_packaged_logo() -> None:
 
     assert icon_path.name == "osascript-logo.png"
     assert icon_path.is_file()
+
+
+def test_dialog_script_compiles_on_macos(tmp_path: Path) -> None:
+    if shutil.which("osacompile") is None:
+        pytest.skip("osacompile is not available")
+
+    script_path = tmp_path / "dialog.applescript"
+    compiled_path = tmp_path / "dialog.scpt"
+    script_path.write_text(DIALOG_SCRIPT, encoding="utf-8")
+
+    completed = subprocess.run(
+        ["osacompile", "-o", str(compiled_path), str(script_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_dialog_script_sets_font_without_showing_dialog(tmp_path: Path) -> None:
+    if shutil.which("osascript") is None:
+        pytest.skip("osascript is not available")
+
+    script = DIALOG_SCRIPT.replace(
+        """
+    set responseCode to (alert's runModal()) as integer
+    set buttonIndex to responseCode - 999
+    if buttonIndex < 1 or buttonIndex > (count of buttonList) then
+        return ""
+    end if
+    return "button returned:" & (item buttonIndex of buttonList)
+""",
+        """
+    set fontSizes to {}
+    my collectTextFieldAttributedFontSizes(alert's |window|()'s contentView(), fontSizes)
+    set AppleScript's text item delimiters to ","
+    return fontSizes as text
+""",
+    )
+    script += """
+
+on collectTextFieldAttributedFontSizes(parentView, fontSizes)
+    repeat with childView in (parentView's subviews())
+        if ((childView's isKindOfClass:(current application's NSTextField)) as boolean) then
+            set fontObject to (childView's attributedStringValue()'s attribute:(current application's NSFontAttributeName) atIndex:0 effectiveRange:(missing value))
+            set end of fontSizes to ((fontObject's pointSize()) as text)
+        end if
+        my collectTextFieldAttributedFontSizes(childView, fontSizes)
+    end repeat
+end collectTextFieldAttributedFontSizes
+"""
+    script_path = tmp_path / "dialog-no-modal.applescript"
+    script_path.write_text(script, encoding="utf-8")
+
+    completed = subprocess.run(
+        [
+            "osascript",
+            str(script_path),
+            "Run command?",
+            "Permission Request",
+            DialogButton.ALLOW_ONCE.value,
+            "",
+            "18",
+            DialogButton.DENY.value,
+            DialogButton.ALLOW_ONCE.value,
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout.strip() == "18.0,18.0"
 
 
 def test_show_dialog_passes_custom_icon_path_to_osascript(monkeypatch) -> None:
@@ -54,9 +133,128 @@ def test_show_dialog_passes_custom_icon_path_to_osascript(monkeypatch) -> None:
         "Permission Request",
         "Allow Once",
         "/tmp/logo.jpeg",
+        str(DEFAULT_DIALOG_FONT_SIZE),
         "Deny",
         "Allow Once",
     ]
+    assert 'use framework "AppKit"' in captured_script
     assert "set theIconPath to item 4 of argv" in captured_script
-    assert "with icon (POSIX file theIconPath)" in captured_script
+    assert "set theFontSize to (item 5 of argv) as real" in captured_script
     assert result.button == DialogButton.ALLOW_ONCE
+
+
+def test_show_dialog_passes_configured_font_size_to_osascript(monkeypatch) -> None:
+    transport = AppleScriptTransport(skip_osascript=False, dialog_font_size=18)
+    captured_invocation: AppleScriptInvocation | None = None
+    captured_arguments: list[str] | None = None
+    captured_script = ""
+
+    def fake_run_osascript(
+        *,
+        invocation: AppleScriptInvocation,
+        arguments: list[str],
+        script: str,
+    ) -> AppleScriptResult:
+        nonlocal captured_invocation, captured_arguments, captured_script
+        captured_invocation = invocation
+        captured_arguments = arguments
+        captured_script = script
+        return AppleScriptResult(
+            status=TransportStatus.SUCCEEDED,
+            invocation=invocation,
+            stdout="button returned:Allow Once",
+        )
+
+    monkeypatch.setattr("agent_hooks.transport.resolve_dialog_icon_path", lambda: "/tmp/logo.jpeg")
+    monkeypatch.setattr(transport, "_run_osascript", fake_run_osascript)
+
+    result = transport.show_dialog(
+        DialogSpec(
+            title="Permission Request",
+            message="Run command?",
+            buttons=(DialogButton.DENY, DialogButton.ALLOW_ONCE),
+            default_button=DialogButton.ALLOW_ONCE,
+        )
+    )
+
+    assert captured_invocation == AppleScriptInvocation.DIALOG
+    assert captured_arguments == [
+        "Run command?",
+        "Permission Request",
+        "Allow Once",
+        "/tmp/logo.jpeg",
+        "18",
+        "Deny",
+        "Allow Once",
+    ]
+    assert 'use framework "AppKit"' in captured_script
+    assert "set theFontSize to (item 5 of argv) as real" in captured_script
+    assert "setSubviewFontSize" in captured_script
+    assert result.button == DialogButton.ALLOW_ONCE
+
+
+def test_show_dialog_prefers_dialog_font_size_over_transport_default(monkeypatch) -> None:
+    transport = AppleScriptTransport(skip_osascript=False, dialog_font_size=18)
+    captured_arguments: list[str] | None = None
+
+    def fake_run_osascript(
+        *,
+        invocation: AppleScriptInvocation,
+        arguments: list[str],
+        script: str,
+    ) -> AppleScriptResult:
+        nonlocal captured_arguments
+        captured_arguments = arguments
+        return AppleScriptResult(
+            status=TransportStatus.SUCCEEDED,
+            invocation=invocation,
+            stdout="button returned:Allow Once",
+        )
+
+    monkeypatch.setattr(transport, "_run_osascript", fake_run_osascript)
+
+    transport.show_dialog(
+        DialogSpec(
+            title="Permission Request",
+            message="Run command?",
+            buttons=(DialogButton.DENY, DialogButton.ALLOW_ONCE),
+            default_button=DialogButton.ALLOW_ONCE,
+            font_size=24,
+        )
+    )
+
+    assert captured_arguments is not None
+    assert captured_arguments[4] == "24"
+
+
+def test_show_dialog_uses_default_font_size_for_invalid_override(monkeypatch) -> None:
+    transport = AppleScriptTransport(skip_osascript=False, dialog_font_size=-1)
+    captured_arguments: list[str] | None = None
+
+    def fake_run_osascript(
+        *,
+        invocation: AppleScriptInvocation,
+        arguments: list[str],
+        script: str,
+    ) -> AppleScriptResult:
+        nonlocal captured_arguments
+        captured_arguments = arguments
+        return AppleScriptResult(
+            status=TransportStatus.SUCCEEDED,
+            invocation=invocation,
+            stdout="button returned:Allow Once",
+        )
+
+    monkeypatch.setattr(transport, "_run_osascript", fake_run_osascript)
+
+    transport.show_dialog(
+        DialogSpec(
+            title="Permission Request",
+            message="Run command?",
+            buttons=(DialogButton.DENY, DialogButton.ALLOW_ONCE),
+            default_button=DialogButton.ALLOW_ONCE,
+        )
+    )
+
+    assert captured_arguments is not None
+    assert captured_arguments[4] == str(DEFAULT_DIALOG_FONT_SIZE)
