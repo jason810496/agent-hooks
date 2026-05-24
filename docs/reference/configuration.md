@@ -37,8 +37,13 @@ Accepted false values:
 ## Dialog Controls
 
 - `AGENT_HOOK_DIALOG_FONT_SIZE`
+- `AGENT_HOOK_COMMAND_PREVIEW_MAX_TOTAL_CHARS`
+- `AGENT_HOOK_COMMAND_PREVIEW_MAX_TOTAL_LINES`
+- `AGENT_HOOK_COMMAND_PREVIEW_MAX_LINE_CHARS`
 
 Set this to a positive point size when you want larger or smaller macOS permission dialog text. Leave it unset to use the default `13` point dialog font size.
+
+Set the command preview limits to positive integers when multiline Bash previews should show more or less content. Leave them unset to use the defaults: `900` total characters, `10` visible lines, and `100` characters per line.
 
 Smoke test the setting with a local permission dialog:
 

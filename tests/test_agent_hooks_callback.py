@@ -26,6 +26,9 @@ from agent_hooks import (
 from agent_hooks.cli_app.app import app
 from agent_hooks.cli_app.cli import main as cli_main
 from agent_hooks.config import (
+    DEFAULT_COMMAND_PREVIEW_MAX_LINE_CHARS,
+    DEFAULT_COMMAND_PREVIEW_MAX_TOTAL_CHARS,
+    DEFAULT_COMMAND_PREVIEW_MAX_TOTAL_LINES,
     DEFAULT_DIALOG_FONT_SIZE,
     ApplicationLoggingConfig,
     AuditLoggingConfig,
@@ -49,6 +52,7 @@ from agent_hooks.models.response import (
     AppleScriptDialogResponse,
     AppleScriptResult,
     DialogResult,
+    DialogSpec,
     HookProcessingResult,
     HookResponse,
 )
@@ -59,6 +63,7 @@ from agent_hooks.providers.codex.middleware import (
     CODEX_EXECPOLICY_RULES_ENV_VAR,
     run_codex_execpolicy_check,
 )
+from agent_hooks.providers.common import format_command_detail
 from agent_hooks.runner import run_callback
 from agent_hooks.transport import DisplayTransport
 
@@ -84,6 +89,7 @@ class FakeTransport:
         )
         self.notification_calls = 0
         self.dialog_calls = 0
+        self.dialogs: list[object] = []
 
     def send_notification(self, notification: object) -> AppleScriptResult:
         self.notification_calls += 1
@@ -91,6 +97,7 @@ class FakeTransport:
 
     def show_dialog(self, dialog: object) -> DialogResult:
         self.dialog_calls += 1
+        self.dialogs.append(dialog)
         return self._dialog_result
 
 
@@ -99,6 +106,9 @@ def build_runtime_config(
     *,
     provider: HookProvider = HookProvider.CLAUDE_CODE,
     dialog_font_size: int = DEFAULT_DIALOG_FONT_SIZE,
+    command_preview_max_total_chars: int = DEFAULT_COMMAND_PREVIEW_MAX_TOTAL_CHARS,
+    command_preview_max_total_lines: int = DEFAULT_COMMAND_PREVIEW_MAX_TOTAL_LINES,
+    command_preview_max_line_chars: int = DEFAULT_COMMAND_PREVIEW_MAX_LINE_CHARS,
 ) -> RuntimeConfig:
     return RuntimeConfig(
         project_root=tmp_path,
@@ -128,6 +138,9 @@ def build_runtime_config(
             ),
         ),
         dialog_font_size=dialog_font_size,
+        command_preview_max_total_chars=command_preview_max_total_chars,
+        command_preview_max_total_lines=command_preview_max_total_lines,
+        command_preview_max_line_chars=command_preview_max_line_chars,
     )
 
 
@@ -250,6 +263,37 @@ class TestPresentation:
 
         assert dialog.title == "Codex — Permission Request"
         assert dialog.buttons == (DialogButton.DENY, DialogButton.ALLOW_ONCE)
+
+    def test_permission_dialog_preserves_multiline_command_formatting(self) -> None:
+        payload = build_hook_payload(
+            {
+                "hook_event_name": "PreToolUse",
+                "cwd": "/tmp/project",
+                "model": "gpt-5.4",
+                "permission_mode": "default",
+                "session_id": "session-1",
+                "tool_input": {
+                    "command": "python3 - <<'PY'\nimport subprocess\nprint('ok')\nPY",
+                },
+                "tool_name": "Bash",
+                "tool_use_id": "tool-1",
+                "transcript_path": None,
+                "turn_id": "turn-1",
+            },
+            provider=HookProvider.CODEX,
+        )
+
+        dialog = provider_client.build_permission_dialog(payload)
+
+        assert dialog.message == (
+            "Tool: Bash\nCommand:\npython3 - <<'PY'\nimport subprocess\nprint('ok')\nPY"
+        )
+
+    def test_permission_dialog_limits_single_line_command_width(self) -> None:
+        assert (
+            format_command_detail("abcdefghijklmnopqrstuvwxyz", max_line_chars=8)
+            == "Command: abcdefg…"
+        )
 
 
 class TestPermissionResponse:
@@ -1263,6 +1307,22 @@ class TestAgentHook:
 
 
 class TestRuntimeConfig:
+    def test_load_runtime_config_caches_process_environment(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        load_runtime_config.cache_clear()
+        monkeypatch.setenv("AGENT_HOOK_PROJECT_ROOT", str(tmp_path))
+        monkeypatch.setenv("AGENT_HOOK_DIALOG_FONT_SIZE", "18")
+
+        config = load_runtime_config()
+        monkeypatch.setenv("AGENT_HOOK_DIALOG_FONT_SIZE", "21")
+
+        assert load_runtime_config() is config
+        assert config.dialog_font_size == 18
+        load_runtime_config.cache_clear()
+
     def test_load_runtime_config_reads_environment_overrides(self, tmp_path: Path) -> None:
         env = {
             "AGENT_HOOK_PROJECT_ROOT": str(tmp_path),
@@ -1276,6 +1336,9 @@ class TestRuntimeConfig:
             "AGENT_HOOK_LOG_BACKUP_COUNT": "6",
             "AGENT_HOOK_RESPONSE_AUDIT_LOG_PATH": "runtime/response.log",
             "AGENT_HOOK_DIALOG_FONT_SIZE": "18",
+            "AGENT_HOOK_COMMAND_PREVIEW_MAX_TOTAL_CHARS": "120",
+            "AGENT_HOOK_COMMAND_PREVIEW_MAX_TOTAL_LINES": "4",
+            "AGENT_HOOK_COMMAND_PREVIEW_MAX_LINE_CHARS": "40",
         }
 
         config = load_runtime_config(env)
@@ -1292,12 +1355,18 @@ class TestRuntimeConfig:
         assert config.audit_logging.response_file.backup_count == 6
         assert config.audit_logging.response_file.path == tmp_path / "runtime" / "response.log"
         assert config.dialog_font_size == 18
+        assert config.command_preview_max_total_chars == 120
+        assert config.command_preview_max_total_lines == 4
+        assert config.command_preview_max_line_chars == 40
 
     def test_load_runtime_config_leaves_provider_unset_by_default(self) -> None:
         config = load_runtime_config({})
 
         assert config.provider is None
         assert config.dialog_font_size == DEFAULT_DIALOG_FONT_SIZE
+        assert config.command_preview_max_total_chars == DEFAULT_COMMAND_PREVIEW_MAX_TOTAL_CHARS
+        assert config.command_preview_max_total_lines == DEFAULT_COMMAND_PREVIEW_MAX_TOTAL_LINES
+        assert config.command_preview_max_line_chars == DEFAULT_COMMAND_PREVIEW_MAX_LINE_CHARS
 
     def test_load_runtime_config_ignores_invalid_dialog_font_size(self) -> None:
         config = load_runtime_config({"AGENT_HOOK_DIALOG_FONT_SIZE": "0"})
@@ -1305,6 +1374,27 @@ class TestRuntimeConfig:
         assert config.dialog_font_size == DEFAULT_DIALOG_FONT_SIZE
         assert config.warnings == (
             "Non-positive integer value for AGENT_HOOK_DIALOG_FONT_SIZE: '0'. Using fallback.",
+        )
+
+    def test_load_runtime_config_ignores_invalid_command_preview_limits(self) -> None:
+        config = load_runtime_config(
+            {
+                "AGENT_HOOK_COMMAND_PREVIEW_MAX_TOTAL_CHARS": "0",
+                "AGENT_HOOK_COMMAND_PREVIEW_MAX_TOTAL_LINES": "nope",
+                "AGENT_HOOK_COMMAND_PREVIEW_MAX_LINE_CHARS": "-1",
+            }
+        )
+
+        assert config.command_preview_max_total_chars == DEFAULT_COMMAND_PREVIEW_MAX_TOTAL_CHARS
+        assert config.command_preview_max_total_lines == DEFAULT_COMMAND_PREVIEW_MAX_TOTAL_LINES
+        assert config.command_preview_max_line_chars == DEFAULT_COMMAND_PREVIEW_MAX_LINE_CHARS
+        assert config.warnings == (
+            "Non-positive integer value for AGENT_HOOK_COMMAND_PREVIEW_MAX_TOTAL_CHARS: '0'. "
+            "Using fallback.",
+            "Invalid integer value for AGENT_HOOK_COMMAND_PREVIEW_MAX_TOTAL_LINES: 'nope'. "
+            "Using fallback.",
+            "Non-positive integer value for AGENT_HOOK_COMMAND_PREVIEW_MAX_LINE_CHARS: '-1'. "
+            "Using fallback.",
         )
 
 
@@ -1462,6 +1552,91 @@ class TestRunCallback:
             "skip_osascript": True,
             "dialog_font_size": 21,
         }
+
+    def test_run_callback_applies_configured_command_preview_limits(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        stdin = StringIO(
+            """
+            {
+              "hook_event_name": "PreToolUse",
+              "cwd": "/tmp/project",
+              "model": "gpt-5.4",
+              "permission_mode": "default",
+              "session_id": "session-1",
+              "tool_input": {"command": "1234567890\\nsecond\\nthird\\nfourth"},
+              "tool_name": "Bash",
+              "tool_use_id": "tool-1",
+              "transcript_path": null,
+              "turn_id": "turn-1"
+            }
+            """
+        )
+        stdout = StringIO()
+        transport = FakeTransport()
+        monkeypatch.setenv("AGENT_HOOK_PROJECT_ROOT", str(tmp_path))
+        monkeypatch.setenv("AGENT_HOOK_PROVIDER", "codex")
+        monkeypatch.setenv("AGENT_HOOK_COMMAND_PREVIEW_MAX_TOTAL_CHARS", "20")
+        monkeypatch.setenv("AGENT_HOOK_COMMAND_PREVIEW_MAX_TOTAL_LINES", "2")
+        load_runtime_config.cache_clear()
+
+        exit_code = run_callback(
+            app,
+            stdin=stdin,
+            stdout=stdout,
+            transport=transport,
+        )
+        load_runtime_config.cache_clear()
+
+        assert exit_code == 0
+        assert len(transport.dialogs) == 1
+        dialog = transport.dialogs[0]
+        assert isinstance(dialog, DialogSpec)
+        assert dialog.message == ("Tool: Bash\nCommand:\n1234567890\nsecond\n… +2 lines")
+
+    def test_run_callback_limits_command_preview_line_width(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        stdin = StringIO(
+            """
+            {
+              "hook_event_name": "PreToolUse",
+              "cwd": "/tmp/project",
+              "model": "gpt-5.4",
+              "permission_mode": "default",
+              "session_id": "session-1",
+              "tool_input": {"command": "1234567890\\nabcdefghi\\nok"},
+              "tool_name": "Bash",
+              "tool_use_id": "tool-1",
+              "transcript_path": null,
+              "turn_id": "turn-1"
+            }
+            """
+        )
+        stdout = StringIO()
+        transport = FakeTransport()
+        monkeypatch.setenv("AGENT_HOOK_PROJECT_ROOT", str(tmp_path))
+        monkeypatch.setenv("AGENT_HOOK_PROVIDER", "codex")
+        monkeypatch.setenv("AGENT_HOOK_COMMAND_PREVIEW_MAX_LINE_CHARS", "6")
+        load_runtime_config.cache_clear()
+
+        exit_code = run_callback(
+            app,
+            stdin=stdin,
+            stdout=stdout,
+            transport=transport,
+        )
+        load_runtime_config.cache_clear()
+
+        assert exit_code == 0
+        assert len(transport.dialogs) == 1
+        dialog = transport.dialogs[0]
+        assert isinstance(dialog, DialogSpec)
+        assert dialog.message == ("Tool: Bash\nCommand:\n12345…\nabcde…\nok")
 
     def test_run_callback_supports_codex_provider(
         self,

@@ -6,6 +6,7 @@ import logging
 import os
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 
 from agent_hooks.enums import HookProvider
@@ -19,12 +20,18 @@ DEFAULT_APPLICATION_LOG_FILENAME = "hooks.log"
 DEFAULT_INPUT_AUDIT_LOG_FILENAME = "hooks.raw.log"
 DEFAULT_RESPONSE_AUDIT_LOG_FILENAME = "hooks.response.log"
 DEFAULT_DIALOG_FONT_SIZE = 13
+DEFAULT_COMMAND_PREVIEW_MAX_TOTAL_CHARS = 900
+DEFAULT_COMMAND_PREVIEW_MAX_TOTAL_LINES = 10
+DEFAULT_COMMAND_PREVIEW_MAX_LINE_CHARS = 100
 
 APPLICATION_LOG_FORMAT_ENV_VAR = "AGENT_HOOK_APP_LOG_FORMAT"
 APPLICATION_LOG_LEVEL_ENV_VAR = "AGENT_HOOK_APP_LOG_LEVEL"
 APPLICATION_LOG_PATH_ENV_VAR = "AGENT_HOOK_APP_LOG_PATH"
 APPLICATION_LOG_MAX_BYTES_ENV_VAR = "AGENT_HOOK_APP_LOG_MAX_BYTES"
 APPLICATION_LOG_BACKUP_COUNT_ENV_VAR = "AGENT_HOOK_APP_LOG_BACKUP_COUNT"
+COMMAND_PREVIEW_MAX_TOTAL_CHARS_ENV_VAR = "AGENT_HOOK_COMMAND_PREVIEW_MAX_TOTAL_CHARS"
+COMMAND_PREVIEW_MAX_TOTAL_LINES_ENV_VAR = "AGENT_HOOK_COMMAND_PREVIEW_MAX_TOTAL_LINES"
+COMMAND_PREVIEW_MAX_LINE_CHARS_ENV_VAR = "AGENT_HOOK_COMMAND_PREVIEW_MAX_LINE_CHARS"
 DIALOG_FONT_SIZE_ENV_VAR = "AGENT_HOOK_DIALOG_FONT_SIZE"
 PROVIDER_ENV_VAR = "AGENT_HOOK_PROVIDER"
 DISABLE_OSASCRIPT_ENV_VARS = (
@@ -91,6 +98,9 @@ class RuntimeConfig:
     application_logging: ApplicationLoggingConfig
     audit_logging: AuditLoggingConfig
     dialog_font_size: int = DEFAULT_DIALOG_FONT_SIZE
+    command_preview_max_total_chars: int = DEFAULT_COMMAND_PREVIEW_MAX_TOTAL_CHARS
+    command_preview_max_total_lines: int = DEFAULT_COMMAND_PREVIEW_MAX_TOTAL_LINES
+    command_preview_max_line_chars: int = DEFAULT_COMMAND_PREVIEW_MAX_LINE_CHARS
     warnings: tuple[str, ...] = ()
 
     @property
@@ -125,7 +135,20 @@ def load_runtime_config(env: Mapping[str, str] | None = None) -> RuntimeConfig:
     :type env: Mapping[str, str] | None
     :return: Normalized runtime configuration.
     """
-    environment = os.environ if env is None else env
+    if env is None:
+        return _load_current_runtime_config()
+    return _build_runtime_config(env)
+
+
+@cache
+def _load_current_runtime_config() -> RuntimeConfig:
+    """Build and cache runtime configuration from the process environment."""
+    return _build_runtime_config(os.environ)
+
+
+def _build_runtime_config(env: Mapping[str, str]) -> RuntimeConfig:
+    """Build runtime configuration from an explicit environment mapping."""
+    environment = env
     warnings: list[str] = []
     default_project_root = Path(__file__).resolve().parents[2]
     project_root = read_path_env(
@@ -195,6 +218,24 @@ def load_runtime_config(env: Mapping[str, str] | None = None) -> RuntimeConfig:
         default=DEFAULT_DIALOG_FONT_SIZE,
         warnings=warnings,
     )
+    command_preview_max_total_chars = read_positive_int_env(
+        environment,
+        COMMAND_PREVIEW_MAX_TOTAL_CHARS_ENV_VAR,
+        default=DEFAULT_COMMAND_PREVIEW_MAX_TOTAL_CHARS,
+        warnings=warnings,
+    )
+    command_preview_max_total_lines = read_positive_int_env(
+        environment,
+        COMMAND_PREVIEW_MAX_TOTAL_LINES_ENV_VAR,
+        default=DEFAULT_COMMAND_PREVIEW_MAX_TOTAL_LINES,
+        warnings=warnings,
+    )
+    command_preview_max_line_chars = read_positive_int_env(
+        environment,
+        COMMAND_PREVIEW_MAX_LINE_CHARS_ENV_VAR,
+        default=DEFAULT_COMMAND_PREVIEW_MAX_LINE_CHARS,
+        warnings=warnings,
+    )
 
     return RuntimeConfig(
         project_root=project_root,
@@ -212,8 +253,14 @@ def load_runtime_config(env: Mapping[str, str] | None = None) -> RuntimeConfig:
             response_file=response_audit_file,
         ),
         dialog_font_size=dialog_font_size,
+        command_preview_max_total_chars=command_preview_max_total_chars,
+        command_preview_max_total_lines=command_preview_max_total_lines,
+        command_preview_max_line_chars=command_preview_max_line_chars,
         warnings=tuple(warnings),
     )
+
+
+load_runtime_config.cache_clear = _load_current_runtime_config.cache_clear  # type: ignore[attr-defined]
 
 
 def read_provider_env(

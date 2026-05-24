@@ -37,6 +37,14 @@ def test_script_getters_load_packaged_sources_from_cache() -> None:
     assert "display notification" in notification_script
 
 
+def test_dialog_script_sizes_width_from_longest_visible_line() -> None:
+    dialog_script = get_dialog_script()
+
+    assert "setAlertWidthForVisibleLines" in dialog_script
+    assert "longestVisibleLineWidth" in dialog_script
+    assert "set visibleLines to text items of textValue" in dialog_script
+
+
 def test_dialog_script_compiles_on_macos(tmp_path: Path) -> None:
     if shutil.which("osacompile") is None:
         pytest.skip("osacompile is not available")
@@ -70,9 +78,13 @@ def test_dialog_script_sets_font_without_showing_dialog(tmp_path: Path) -> None:
 """,
         """
     set fontSizes to {}
+    set commandFontSummaries to {}
     my collectTextFieldAttributedFontSizes(alert's |window|()'s contentView(), fontSizes)
+    my collectCommandBlockFontSummaries(alert's |window|()'s contentView(), commandFontSummaries)
     set AppleScript's text item delimiters to ","
-    return fontSizes as text
+    set textFieldSummary to fontSizes as text
+    set commandFontSummary to commandFontSummaries as text
+    return textFieldSummary & "|" & commandFontSummary
 """,
     )
     script += """
@@ -86,6 +98,31 @@ on collectTextFieldAttributedFontSizes(parentView, fontSizes)
         my collectTextFieldAttributedFontSizes(childView, fontSizes)
     end repeat
 end collectTextFieldAttributedFontSizes
+
+on collectCommandBlockFontSummaries(parentView, commandFontSummaries)
+    repeat with childView in (parentView's subviews())
+        if ((childView's isKindOfClass:(current application's NSTextField)) as boolean) then
+            set textNSString to current application's NSString's stringWithString:(childView's stringValue())
+            set commandLabelRange to textNSString's rangeOfString:"Command:"
+            if (commandLabelRange's |length| as integer) > 0 then
+                set commandStart to (commandLabelRange's location as integer) + (commandLabelRange's |length| as integer)
+                set messageLength to textNSString's |length|()
+                repeat while commandStart < messageLength
+                    set characterRange to current application's NSMakeRange(commandStart, 1)
+                    set currentCharacter to (textNSString's substringWithRange:characterRange) as text
+                    if currentCharacter is " " or currentCharacter is linefeed then
+                        set commandStart to commandStart + 1
+                    else
+                        exit repeat
+                    end if
+                end repeat
+                set fontObject to (childView's attributedStringValue()'s attribute:(current application's NSFontAttributeName) atIndex:commandStart effectiveRange:(missing value))
+                set end of commandFontSummaries to ((fontObject's pointSize()) as text) & ":" & ((fontObject's isFixedPitch()) as text)
+            end if
+        end if
+        my collectCommandBlockFontSummaries(childView, commandFontSummaries)
+    end repeat
+end collectCommandBlockFontSummaries
 """
     script_path = tmp_path / "dialog-no-modal.applescript"
     script_path.write_text(script, encoding="utf-8")
@@ -94,7 +131,7 @@ end collectTextFieldAttributedFontSizes
         [
             "osascript",
             str(script_path),
-            "Run command?",
+            "Tool: Bash\nCommand:\npython3 - <<'PY'\nprint(1)\nPY",
             "Permission Request",
             DialogButton.ALLOW_ONCE.value,
             "",
@@ -108,7 +145,7 @@ end collectTextFieldAttributedFontSizes
     )
 
     assert completed.returncode == 0, completed.stderr
-    assert completed.stdout.strip() == "18.0,18.0"
+    assert completed.stdout.strip() == "18.0,18.0|18.0:true"
 
 
 def test_show_dialog_passes_custom_icon_path_to_osascript(monkeypatch) -> None:
