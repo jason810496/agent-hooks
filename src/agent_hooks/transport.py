@@ -5,8 +5,9 @@ from __future__ import annotations
 import shutil
 import subprocess
 import sys
+from functools import cache
 from pathlib import Path
-from typing import Protocol
+from typing import Final, Protocol
 
 from agent_hooks.config import DEFAULT_DIALOG_FONT_SIZE
 from agent_hooks.enums import AppleScriptInvocation, DialogButton, TransportStatus
@@ -17,121 +18,36 @@ from agent_hooks.models.schemas.display import (
     NotificationSpec,
 )
 
-NOTIFICATION_SCRIPT = """
-on run argv
-    set theMessage to item 1 of argv
-    set theTitle to item 2 of argv
-    set theSubtitle to item 3 of argv
-    set theSoundName to item 4 of argv
+ASSETS_PATH: Final = Path(__file__).resolve().parent / "assets"
+NOTIFICATION_SCRIPT_PATH: Final = ASSETS_PATH / "notification.applescript"
+DIALOG_SCRIPT_PATH: Final = ASSETS_PATH / "dialog.applescript"
+OSASCRIPT_LOGO_PATH: Final = ASSETS_PATH / "osascript-logo.png"
 
-    if theSubtitle is "" and theSoundName is "" then
-        display notification theMessage with title theTitle
-    else if theSubtitle is "" then
-        display notification theMessage with title theTitle sound name theSoundName
-    else if theSoundName is "" then
-        display notification theMessage with title theTitle subtitle theSubtitle
-    else
-        display notification theMessage with title theTitle subtitle theSubtitle sound name theSoundName
-    end if
-end run
-""".strip()
 
-DIALOG_SCRIPT = """
-use framework "AppKit"
-use scripting additions
+def _read_applescript(path: Path) -> str:
+    """Return AppleScript source from a packaged script file."""
+    return path.read_text(encoding="utf-8").strip()
 
-on run argv
-    set theMessage to item 1 of argv
-    set theTitle to item 2 of argv
-    set theDefault to item 3 of argv
-    set theIconPath to item 4 of argv
-    set theFontSize to (item 5 of argv) as real
-    set buttonList to {}
-    repeat with i from 6 to (count of argv)
-        set end of buttonList to item i of argv
-    end repeat
 
-    set alert to current application's NSAlert's alloc()'s init()
-    alert's setMessageText:theTitle
-    alert's setInformativeText:theMessage
-    repeat with buttonTitle in buttonList
-        alert's addButtonWithTitle:(buttonTitle as text)
-    end repeat
-    my setAlertIcon(alert, theIconPath)
-    alert's layout()
-    my setAlertFontSize(alert, theFontSize)
-    my setDefaultButton(alert, theDefault)
-    alert's layout()
+@cache
+def get_notification_script() -> str:
+    """Return the cached packaged notification AppleScript source."""
+    return _read_applescript(NOTIFICATION_SCRIPT_PATH)
 
-    set responseCode to (alert's runModal()) as integer
-    set buttonIndex to responseCode - 999
-    if buttonIndex < 1 or buttonIndex > (count of buttonList) then
-        return ""
-    end if
-    return "button returned:" & (item buttonIndex of buttonList)
-end run
 
-on setAlertIcon(alert, theIconPath)
-    if theIconPath is "" then
-        return
-    end if
+@cache
+def get_dialog_script() -> str:
+    """Return the cached packaged dialog AppleScript source."""
+    return _read_applescript(DIALOG_SCRIPT_PATH)
 
-    set iconImage to current application's NSImage's alloc()'s initWithContentsOfFile:theIconPath
-    if iconImage is not missing value then
-        alert's setIcon:iconImage
-    end if
-end setAlertIcon
 
-on setAlertFontSize(alert, theFontSize)
-    set contentView to alert's |window|()'s contentView()
-    my setSubviewFontSize(contentView, theFontSize)
-    repeat with alertButton in (alert's buttons())
-        set sourceFont to alertButton's |font|()
-        set buttonFont to my resizedFont(sourceFont, theFontSize)
-        alertButton's setFont:buttonFont
-    end repeat
-end setAlertFontSize
-
-on setSubviewFontSize(parentView, theFontSize)
-    repeat with childView in (parentView's subviews())
-        if ((childView's isKindOfClass:(current application's NSTextField)) as boolean) then
-            set sourceFont to childView's |font|()
-            set textFont to my resizedFont(sourceFont, theFontSize)
-            childView's setFont:textFont
-            my setTextFieldAttributedFont(childView, textFont)
-        end if
-        my setSubviewFontSize(childView, theFontSize)
-    end repeat
-end setSubviewFontSize
-
-on setTextFieldAttributedFont(textField, textFont)
-    set textValue to textField's stringValue()
-    set textAttributes to current application's NSDictionary's dictionaryWithObject:textFont forKey:(current application's NSFontAttributeName)
-    set attributedText to current application's NSAttributedString's alloc()'s initWithString:textValue attributes:textAttributes
-    textField's setAttributedStringValue:attributedText
-end setTextFieldAttributedFont
-
-on resizedFont(sourceFont, theFontSize)
-    if sourceFont is missing value then
-        return current application's NSFont's systemFontOfSize:theFontSize
-    end if
-
-    set fontManager to current application's NSFontManager's sharedFontManager()
-    return fontManager's convertFont:sourceFont toSize:theFontSize
-end resizedFont
-
-on setDefaultButton(alert, theDefault)
-    repeat with alertButton in (alert's buttons())
-        if ((alertButton's title()) as text) is theDefault then
-            alertButton's setKeyEquivalent:(character id 13)
-        else
-            alertButton's setKeyEquivalent:""
-        end if
-    end repeat
-end setDefaultButton
-""".strip()
-
-OSASCRIPT_LOGO_PATH = Path(__file__).resolve().parent / "assets" / "osascript-logo.png"
+def __getattr__(name: str) -> str:
+    """Return lazily loaded script source for legacy module constants."""
+    if name == "NOTIFICATION_SCRIPT":
+        return get_notification_script()
+    if name == "DIALOG_SCRIPT":
+        return get_dialog_script()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def resolve_dialog_icon_path() -> str:
@@ -198,7 +114,7 @@ class AppleScriptTransport:
                 notification.subtitle,
                 notification.sound.value,
             ],
-            script=NOTIFICATION_SCRIPT,
+            script=get_notification_script(),
         )
 
     def show_dialog(self, dialog: DialogSpec) -> DialogResult:
@@ -219,7 +135,7 @@ class AppleScriptTransport:
                 str(dialog_font_size),
                 *(button.value for button in dialog.buttons),
             ],
-            script=DIALOG_SCRIPT,
+            script=get_dialog_script(),
         )
         button = (
             self._parse_dialog_button(transport.stdout)

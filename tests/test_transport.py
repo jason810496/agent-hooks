@@ -9,7 +9,12 @@ import pytest
 from agent_hooks.config import DEFAULT_DIALOG_FONT_SIZE
 from agent_hooks.enums import AppleScriptInvocation, DialogButton, TransportStatus
 from agent_hooks.models.response import AppleScriptResult, DialogSpec
-from agent_hooks.transport import DIALOG_SCRIPT, AppleScriptTransport, resolve_dialog_icon_path
+from agent_hooks.transport import (
+    AppleScriptTransport,
+    get_dialog_script,
+    get_notification_script,
+    resolve_dialog_icon_path,
+)
 
 
 def test_resolve_dialog_icon_path_returns_packaged_logo() -> None:
@@ -19,13 +24,26 @@ def test_resolve_dialog_icon_path_returns_packaged_logo() -> None:
     assert icon_path.is_file()
 
 
+def test_script_getters_load_packaged_sources_from_cache() -> None:
+    get_dialog_script.cache_clear()
+    get_notification_script.cache_clear()
+
+    dialog_script = get_dialog_script()
+    notification_script = get_notification_script()
+
+    assert dialog_script is get_dialog_script()
+    assert notification_script is get_notification_script()
+    assert 'use framework "AppKit"' in dialog_script
+    assert "display notification" in notification_script
+
+
 def test_dialog_script_compiles_on_macos(tmp_path: Path) -> None:
     if shutil.which("osacompile") is None:
         pytest.skip("osacompile is not available")
 
     script_path = tmp_path / "dialog.applescript"
     compiled_path = tmp_path / "dialog.scpt"
-    script_path.write_text(DIALOG_SCRIPT, encoding="utf-8")
+    script_path.write_text(get_dialog_script(), encoding="utf-8")
 
     completed = subprocess.run(
         ["osacompile", "-o", str(compiled_path), str(script_path)],
@@ -41,7 +59,7 @@ def test_dialog_script_sets_font_without_showing_dialog(tmp_path: Path) -> None:
     if shutil.which("osascript") is None:
         pytest.skip("osascript is not available")
 
-    script = DIALOG_SCRIPT.replace(
+    script = get_dialog_script().replace(
         """
     set responseCode to (alert's runModal()) as integer
     set buttonIndex to responseCode - 999
