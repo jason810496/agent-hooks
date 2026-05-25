@@ -56,6 +56,10 @@ from agent_hooks.models.response import (
     HookProcessingResult,
     HookResponse,
 )
+from agent_hooks.models.schemas.display import (
+    AskUserQuestionDialogResult,
+    AskUserQuestionDialogSpec,
+)
 from agent_hooks.models.schemas.hooks import HookPayload
 from agent_hooks.parsing import build_hook_payload, read_hook_input
 from agent_hooks.providers import provider_client
@@ -74,6 +78,7 @@ class FakeTransport:
         *,
         notification_result: AppleScriptResult | None = None,
         dialog_result: DialogResult | None = None,
+        ask_user_question_result: AskUserQuestionDialogResult | None = None,
     ) -> None:
         self._notification_result = notification_result or AppleScriptResult(
             status=TransportStatus.SUCCEEDED,
@@ -87,9 +92,19 @@ class FakeTransport:
                 stdout="button returned:Allow Once",
             ),
         )
+        self._ask_user_question_result = ask_user_question_result or AskUserQuestionDialogResult(
+            answers=None,
+            transport=AppleScriptResult(
+                status=TransportStatus.SKIPPED,
+                invocation=AppleScriptInvocation.ASK_USER_QUESTION,
+                skipped_reason="not-configured",
+            ),
+        )
         self.notification_calls = 0
         self.dialog_calls = 0
+        self.ask_user_question_calls = 0
         self.dialogs: list[object] = []
+        self.ask_user_question_dialogs: list[object] = []
 
     def send_notification(self, notification: object) -> AppleScriptResult:
         self.notification_calls += 1
@@ -99,6 +114,13 @@ class FakeTransport:
         self.dialog_calls += 1
         self.dialogs.append(dialog)
         return self._dialog_result
+
+    def show_ask_user_question_dialog(
+        self, dialog: object
+    ) -> AskUserQuestionDialogResult:
+        self.ask_user_question_calls += 1
+        self.ask_user_question_dialogs.append(dialog)
+        return self._ask_user_question_result
 
 
 def build_runtime_config(
@@ -294,6 +316,229 @@ class TestPresentation:
             format_command_detail("abcdefghijklmnopqrstuvwxyz", max_line_chars=8)
             == "Command: abcdefg…"
         )
+
+    def test_permission_dialog_previews_ask_user_question_options(self) -> None:
+        payload = build_hook_payload(
+            {
+                "hook_event_name": "PermissionRequest",
+                "tool_name": "AskUserQuestion",
+                "tool_input": {
+                    "questions": [
+                        {
+                            "question": "Which testing framework would you prefer?",
+                            "header": "Testing",
+                            "multiSelect": False,
+                            "options": [
+                                {"label": "Jest", "description": "Fast, snapshot testing"},
+                                {"label": "Vitest", "description": "Vite-native, ESM support"},
+                            ],
+                        },
+                        {
+                            "question": "Which deployment platforms?",
+                            "header": "Deployment",
+                            "multiSelect": True,
+                            "options": [
+                                {"label": "AWS", "description": "Extensive ecosystem"},
+                                {"label": "GCP"},
+                            ],
+                        },
+                    ]
+                },
+            }
+        )
+
+        dialog = provider_client.build_permission_dialog(payload)
+
+        assert dialog.message == (
+            "Tool: AskUserQuestion\n"
+            "\n"
+            "Q1 [Testing] (single-select): Which testing framework would you prefer?\n"
+            "  - Jest: Fast, snapshot testing\n"
+            "  - Vitest: Vite-native, ESM support\n"
+            "\n"
+            "Q2 [Deployment] (multi-select): Which deployment platforms?\n"
+            "  - AWS: Extensive ecosystem\n"
+            "  - GCP"
+        )
+
+    def test_permission_dialog_skips_question_preview_for_other_tools(self) -> None:
+        payload = build_hook_payload(
+            {
+                "hook_event_name": "PermissionRequest",
+                "tool_name": "Bash",
+                "tool_input": {
+                    "command": "git status",
+                    "questions": [{"question": "ignored", "options": []}],
+                },
+            }
+        )
+
+        dialog = provider_client.build_permission_dialog(payload)
+
+        assert "Q1" not in dialog.message
+
+    def test_permission_dialog_ignores_empty_ask_user_question_payload(self) -> None:
+        payload = build_hook_payload(
+            {
+                "hook_event_name": "PermissionRequest",
+                "tool_name": "AskUserQuestion",
+                "tool_input": {"questions": []},
+            }
+        )
+
+        dialog = provider_client.build_permission_dialog(payload)
+
+        assert dialog.message == "Tool: AskUserQuestion"
+
+
+class TestAskUserQuestionFlow:
+    def _payload(self) -> HookPayload:
+        return build_hook_payload(
+            {
+                "hook_event_name": "PermissionRequest",
+                "tool_name": "AskUserQuestion",
+                "tool_input": {
+                    "questions": [
+                        {
+                            "question": "Pick a framework",
+                            "header": "Testing",
+                            "multiSelect": False,
+                            "options": [
+                                {"label": "Jest", "description": "Fast"},
+                                {"label": "Vitest", "description": "Modern"},
+                            ],
+                        },
+                        {
+                            "question": "Pick deployments",
+                            "header": "Deploy",
+                            "multiSelect": True,
+                            "options": [
+                                {"label": "AWS"},
+                                {"label": "GCP"},
+                            ],
+                        },
+                    ]
+                },
+            }
+        )
+
+    def test_handle_ask_user_question_injects_answers_into_updated_input(self) -> None:
+        payload = self._payload()
+        transport = FakeTransport(
+            ask_user_question_result=AskUserQuestionDialogResult(
+                answers={
+                    "Pick a framework": "Jest",
+                    "Pick deployments": "AWS, GCP",
+                },
+                transport=AppleScriptResult(
+                    status=TransportStatus.SUCCEEDED,
+                    invocation=AppleScriptInvocation.ASK_USER_QUESTION,
+                ),
+            ),
+        )
+
+        result = process_permission_request(payload, transport)
+
+        assert transport.ask_user_question_calls == 1
+        assert transport.dialog_calls == 0
+        assert isinstance(transport.ask_user_question_dialogs[0], AskUserQuestionDialogSpec)
+        hook_output = result.response.as_payload()["hookSpecificOutput"]
+        decision = hook_output["decision"]
+        assert decision["behavior"] == "allow"
+        assert decision["updatedInput"]["answers"] == {
+            "Pick a framework": "Jest",
+            "Pick deployments": "AWS, GCP",
+        }
+        assert decision["updatedInput"]["questions"] == (
+            payload.tool_input.raw["questions"]
+        )
+        assert "updatedInput" not in hook_output
+
+    def test_handle_ask_user_question_cancel_returns_deny(self) -> None:
+        payload = self._payload()
+        transport = FakeTransport(
+            ask_user_question_result=AskUserQuestionDialogResult(
+                answers=None,
+                transport=AppleScriptResult(
+                    status=TransportStatus.SUCCEEDED,
+                    invocation=AppleScriptInvocation.ASK_USER_QUESTION,
+                    stdout="CANCELLED",
+                ),
+            ),
+        )
+
+        result = process_permission_request(payload, transport)
+
+        hook_output = result.response.as_payload()["hookSpecificOutput"]
+        assert hook_output["decision"] == {
+            "behavior": "deny",
+            "message": "Cancelled by local user.",
+        }
+
+    def test_pretool_use_ask_user_question_renders_pretool_use_wire_shape(self) -> None:
+        from agent_hooks.providers.claude_code.payload import (
+            build_hook_payload as build_claude_payload,
+        )
+        from agent_hooks.providers.claude_code.response import render_response_payload
+
+        raw_payload = {
+            "hook_event_name": "PreToolUse",
+            "tool_name": "AskUserQuestion",
+            "tool_input": {
+                "questions": [
+                    {
+                        "question": "Pick one",
+                        "header": "Pick",
+                        "multiSelect": False,
+                        "options": [{"label": "A"}],
+                    }
+                ]
+            },
+        }
+        input_payload = build_claude_payload(raw_payload)
+        assert input_payload.event_name.value == "PermissionRequest"
+        assert input_payload.raw_event_name == "PreToolUse"
+
+        transport = FakeTransport(
+            ask_user_question_result=AskUserQuestionDialogResult(
+                answers={"Pick one": "A"},
+                transport=AppleScriptResult(
+                    status=TransportStatus.SUCCEEDED,
+                    invocation=AppleScriptInvocation.ASK_USER_QUESTION,
+                ),
+            ),
+        )
+
+        result = process_permission_request(input_payload, transport)
+        rendered = render_response_payload(
+            result.response.as_payload(),
+            input_payload=input_payload,
+        )
+
+        hook_output = rendered["hookSpecificOutput"]
+        assert hook_output["hookEventName"] == "PreToolUse"
+        assert hook_output["permissionDecision"] == "allow"
+        assert hook_output["updatedInput"]["answers"] == {"Pick one": "A"}
+        assert "decision" not in hook_output
+
+    def test_handle_ask_user_question_falls_back_when_transport_skipped(self) -> None:
+        payload = self._payload()
+        transport = FakeTransport(
+            ask_user_question_result=AskUserQuestionDialogResult(
+                answers=None,
+                transport=AppleScriptResult(
+                    status=TransportStatus.SKIPPED,
+                    invocation=AppleScriptInvocation.ASK_USER_QUESTION,
+                    skipped_reason="unsupported-platform",
+                ),
+            ),
+        )
+
+        result = process_permission_request(payload, transport)
+
+        assert transport.ask_user_question_calls == 1
+        assert transport.dialog_calls == 1
+        assert isinstance(result.display, DialogSpec)
 
 
 class TestPermissionResponse:

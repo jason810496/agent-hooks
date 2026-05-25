@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from agent_hooks.models.schemas.display import (
     AppleScriptResult,
+    AskUserQuestionDialogResult,
+    AskUserQuestionDialogSpec,
+    AskUserQuestionEntry,
+    AskUserQuestionOption,
     DialogResult,
     DialogSpec,
     DisplaySpec,
@@ -29,6 +33,10 @@ __all__ = [
     "AppleScriptDialogResponse",
     "AppleScriptResult",
     "ApplicationLogRecord",
+    "AskUserQuestionDialogResult",
+    "AskUserQuestionDialogSpec",
+    "AskUserQuestionEntry",
+    "AskUserQuestionOption",
     "DialogResult",
     "DialogSpec",
     "DisplaySpec",

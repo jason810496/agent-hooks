@@ -13,6 +13,9 @@ from agent_hooks.config import DEFAULT_DIALOG_FONT_SIZE
 from agent_hooks.enums import AppleScriptInvocation, DialogButton, TransportStatus
 from agent_hooks.models.schemas.display import (
     AppleScriptResult,
+    AskUserQuestionDialogResult,
+    AskUserQuestionDialogSpec,
+    AskUserQuestionEntry,
     DialogResult,
     DialogSpec,
     NotificationSpec,
@@ -21,7 +24,10 @@ from agent_hooks.models.schemas.display import (
 ASSETS_PATH: Final = Path(__file__).resolve().parent / "assets"
 NOTIFICATION_SCRIPT_PATH: Final = ASSETS_PATH / "notification.applescript"
 DIALOG_SCRIPT_PATH: Final = ASSETS_PATH / "dialog.applescript"
+ASK_USER_QUESTION_SCRIPT_PATH: Final = ASSETS_PATH / "ask_user_question.applescript"
 OSASCRIPT_LOGO_PATH: Final = ASSETS_PATH / "osascript-logo.png"
+ASK_USER_QUESTION_SEPARATOR: Final = "\n##\n"
+ASK_USER_QUESTION_CANCELLED_MARKER: Final = "CANCELLED"
 
 
 def _read_applescript(path: Path) -> str:
@@ -41,12 +47,20 @@ def get_dialog_script() -> str:
     return _read_applescript(DIALOG_SCRIPT_PATH)
 
 
+@cache
+def get_ask_user_question_script() -> str:
+    """Return the cached packaged AskUserQuestion AppleScript source."""
+    return _read_applescript(ASK_USER_QUESTION_SCRIPT_PATH)
+
+
 def __getattr__(name: str) -> str:
     """Return lazily loaded script source for legacy module constants."""
     if name == "NOTIFICATION_SCRIPT":
         return get_notification_script()
     if name == "DIALOG_SCRIPT":
         return get_dialog_script()
+    if name == "ASK_USER_QUESTION_SCRIPT":
+        return get_ask_user_question_script()
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -75,6 +89,17 @@ class DisplayTransport(Protocol):
         :param dialog: Dialog specification.
         :type dialog: DialogSpec
         :return: Dialog result with button selection.
+        """
+        ...
+
+    def show_ask_user_question_dialog(
+        self, dialog: AskUserQuestionDialogSpec
+    ) -> AskUserQuestionDialogResult:
+        """Show a multi-question picker dialog and collect the answers.
+
+        :param dialog: AskUserQuestion dialog specification.
+        :type dialog: AskUserQuestionDialogSpec
+        :return: Collected answers and transport metadata.
         """
         ...
 
@@ -143,6 +168,84 @@ class AppleScriptTransport:
             else None
         )
         return DialogResult(button=button, transport=transport)
+
+    def show_ask_user_question_dialog(
+        self, dialog: AskUserQuestionDialogSpec
+    ) -> AskUserQuestionDialogResult:
+        """Show one ``choose from list`` dialog per question and collect answers.
+
+        :param dialog: AskUserQuestion dialog specification.
+        :type dialog: AskUserQuestionDialogSpec
+        :return: Collected answers and transport metadata.
+        """
+        last_transport = AppleScriptResult(
+            status=TransportStatus.SUCCEEDED,
+            invocation=AppleScriptInvocation.ASK_USER_QUESTION,
+        )
+        answers: dict[str, str] = {}
+        for entry in dialog.questions:
+            transport, selections = self._run_ask_user_question(entry)
+            last_transport = transport
+            if transport.status != TransportStatus.SUCCEEDED:
+                return AskUserQuestionDialogResult(answers=None, transport=transport)
+            if selections is None:
+                return AskUserQuestionDialogResult(answers=None, transport=transport)
+            answers[entry.question] = ", ".join(selections)
+        return AskUserQuestionDialogResult(answers=answers, transport=last_transport)
+
+    def _run_ask_user_question(
+        self, entry: AskUserQuestionEntry
+    ) -> tuple[AppleScriptResult, list[str] | None]:
+        """Run one AskUserQuestion picker and parse its output.
+
+        :param entry: Question to render.
+        :type entry: AskUserQuestionEntry
+        :return: Transport result and parsed selections, or ``None`` when cancelled.
+        """
+        prompt = self._build_ask_user_question_prompt(entry)
+        default_label = entry.options[0].label if entry.options else ""
+        arguments = [
+            entry.header or entry.question or "Question",
+            prompt,
+            "1" if entry.multi_select else "0",
+            default_label,
+            *(option.label for option in entry.options),
+        ]
+        transport = self._run_osascript(
+            invocation=AppleScriptInvocation.ASK_USER_QUESTION,
+            arguments=arguments,
+            script=get_ask_user_question_script(),
+        )
+        if transport.status != TransportStatus.SUCCEEDED:
+            return transport, None
+
+        stdout = transport.stdout
+        if stdout == ASK_USER_QUESTION_CANCELLED_MARKER or stdout.startswith("ERROR:"):
+            return transport, None
+
+        selections = [item for item in stdout.split(ASK_USER_QUESTION_SEPARATOR) if item]
+        return transport, selections
+
+    def _build_ask_user_question_prompt(self, entry: AskUserQuestionEntry) -> str:
+        """Return the prompt text shown above the picker for one question.
+
+        :param entry: Question to render.
+        :type entry: AskUserQuestionEntry
+        :return: Prompt body listing each option's description when available.
+        """
+        lines: list[str] = []
+        if entry.question:
+            lines.append(entry.question)
+        descriptions = [
+            f"- {option.label}: {option.description}"
+            for option in entry.options
+            if option.description
+        ]
+        if descriptions:
+            if lines:
+                lines.append("")
+            lines.extend(descriptions)
+        return "\n".join(lines)
 
     def _resolve_dialog_font_size(self, dialog: DialogSpec) -> int:
         """Return the effective positive dialog font size.

@@ -57,8 +57,51 @@ class DialogResult:
     transport: AppleScriptResult
 
 
+@dataclass(frozen=True)
+class AskUserQuestionOption:
+    """Store one selectable option for an AskUserQuestion dialog."""
+
+    label: str
+    description: str = ""
+
+
+@dataclass(frozen=True)
+class AskUserQuestionEntry:
+    """Store one question for an AskUserQuestion dialog."""
+
+    question: str
+    header: str
+    multi_select: bool
+    options: tuple[AskUserQuestionOption, ...]
+
+
+@dataclass(frozen=True)
+class AskUserQuestionDialogSpec:
+    """Store an interactive request that collects answers for AskUserQuestion."""
+
+    title: str
+    questions: tuple[AskUserQuestionEntry, ...]
+
+
+@dataclass(frozen=True)
+class AskUserQuestionDialogResult:
+    """Store answers collected from the AskUserQuestion dialog."""
+
+    answers: dict[str, str] | None
+    transport: AppleScriptResult
+
+    @property
+    def cancelled(self) -> bool:
+        """Return whether the user cancelled the dialog."""
+        return self.answers is None
+
+
 __all__ = [
     "AppleScriptResult",
+    "AskUserQuestionDialogResult",
+    "AskUserQuestionDialogSpec",
+    "AskUserQuestionEntry",
+    "AskUserQuestionOption",
     "DialogResult",
     "DialogSpec",
     "DisplaySpec",

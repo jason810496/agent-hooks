@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from agent_hooks.enums import PermissionBehavior, PermissionDestination
-from agent_hooks.models.schemas.json_types import JsonObject
+from agent_hooks.models.schemas.json_types import JsonObject, JsonValue
 
 
 @dataclass(frozen=True)
@@ -29,6 +29,8 @@ class PermissionDecision:
 
     behavior: PermissionBehavior
     updated_permissions: tuple[PermissionUpdate, ...] = ()
+    updated_input: JsonValue | None = None
+    message: str = ""
 
     def as_payload(self) -> JsonObject:
         """Serialize the permission decision.
@@ -40,6 +42,10 @@ class PermissionDecision:
             payload["updatedPermissions"] = [
                 update.as_payload() for update in self.updated_permissions
             ]
+        if self.updated_input is not None:
+            payload["updatedInput"] = self.updated_input
+        if self.message:
+            payload["message"] = self.message
         return payload
 
 

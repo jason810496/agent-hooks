@@ -9,8 +9,14 @@ import pytest
 from agent_hooks.config import DEFAULT_DIALOG_FONT_SIZE
 from agent_hooks.enums import AppleScriptInvocation, DialogButton, TransportStatus
 from agent_hooks.models.response import AppleScriptResult, DialogSpec
+from agent_hooks.models.schemas.display import (
+    AskUserQuestionDialogSpec,
+    AskUserQuestionEntry,
+    AskUserQuestionOption,
+)
 from agent_hooks.transport import (
     AppleScriptTransport,
+    get_ask_user_question_script,
     get_dialog_script,
     get_notification_script,
     resolve_dialog_icon_path,
@@ -280,6 +286,115 @@ def test_show_dialog_prefers_dialog_font_size_over_transport_default(monkeypatch
 
     assert captured_arguments is not None
     assert captured_arguments[4] == "24"
+
+
+def test_ask_user_question_script_compiles_on_macos(tmp_path: Path) -> None:
+    if shutil.which("osacompile") is None:
+        pytest.skip("osacompile is not available")
+
+    script_path = tmp_path / "ask_user_question.applescript"
+    compiled_path = tmp_path / "ask_user_question.scpt"
+    script_path.write_text(get_ask_user_question_script(), encoding="utf-8")
+
+    completed = subprocess.run(
+        ["osacompile", "-o", str(compiled_path), str(script_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_show_ask_user_question_dialog_collects_single_and_multi_answers(monkeypatch) -> None:
+    transport = AppleScriptTransport(skip_osascript=False)
+    captured_calls: list[list[str]] = []
+    responses = iter(["Jest", "AWS\n##\nGCP"])
+
+    def fake_run_osascript(
+        *,
+        invocation: AppleScriptInvocation,
+        arguments: list[str],
+        script: str,
+    ) -> AppleScriptResult:
+        captured_calls.append(arguments)
+        return AppleScriptResult(
+            status=TransportStatus.SUCCEEDED,
+            invocation=invocation,
+            stdout=next(responses),
+        )
+
+    monkeypatch.setattr(transport, "_run_osascript", fake_run_osascript)
+
+    dialog = AskUserQuestionDialogSpec(
+        title="Claude Code",
+        questions=(
+            AskUserQuestionEntry(
+                question="Pick a framework",
+                header="Testing",
+                multi_select=False,
+                options=(
+                    AskUserQuestionOption(label="Jest", description="Fast"),
+                    AskUserQuestionOption(label="Vitest", description="Modern"),
+                ),
+            ),
+            AskUserQuestionEntry(
+                question="Pick deployments",
+                header="Deploy",
+                multi_select=True,
+                options=(
+                    AskUserQuestionOption(label="AWS"),
+                    AskUserQuestionOption(label="GCP"),
+                ),
+            ),
+        ),
+    )
+
+    result = transport.show_ask_user_question_dialog(dialog)
+
+    assert result.answers == {
+        "Pick a framework": "Jest",
+        "Pick deployments": "AWS, GCP",
+    }
+    assert captured_calls[0][:4] == ["Testing", "Pick a framework\n\n- Jest: Fast\n- Vitest: Modern", "0", "Jest"]
+    assert captured_calls[0][4:] == ["Jest", "Vitest"]
+    assert captured_calls[1][:4] == ["Deploy", "Pick deployments", "1", "AWS"]
+    assert captured_calls[1][4:] == ["AWS", "GCP"]
+
+
+def test_show_ask_user_question_dialog_reports_cancellation(monkeypatch) -> None:
+    transport = AppleScriptTransport(skip_osascript=False)
+
+    def fake_run_osascript(
+        *,
+        invocation: AppleScriptInvocation,
+        arguments: list[str],
+        script: str,
+    ) -> AppleScriptResult:
+        return AppleScriptResult(
+            status=TransportStatus.SUCCEEDED,
+            invocation=invocation,
+            stdout="CANCELLED",
+        )
+
+    monkeypatch.setattr(transport, "_run_osascript", fake_run_osascript)
+
+    result = transport.show_ask_user_question_dialog(
+        AskUserQuestionDialogSpec(
+            title="Claude Code",
+            questions=(
+                AskUserQuestionEntry(
+                    question="Pick one",
+                    header="Pick",
+                    multi_select=False,
+                    options=(AskUserQuestionOption(label="A"),),
+                ),
+            ),
+        )
+    )
+
+    assert result.cancelled is True
+    assert result.answers is None
 
 
 def test_show_dialog_uses_default_font_size_for_invalid_override(monkeypatch) -> None:

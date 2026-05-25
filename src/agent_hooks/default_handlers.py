@@ -10,6 +10,14 @@ from agent_hooks.models.schemas.hooks import HookPayload
 from agent_hooks.models.schemas.processing import HookProcessingResult
 from agent_hooks.models.schemas.responses import AppleScriptDialogResponse, HookResponse
 from agent_hooks.providers import provider_client
+from agent_hooks.providers.claude_code.permissions import (
+    build_ask_user_question_cancel_response,
+    build_ask_user_question_response,
+)
+from agent_hooks.providers.claude_code.presentation import (
+    build_ask_user_question_dialog,
+    is_ask_user_question_payload,
+)
 from agent_hooks.transport import DisplayTransport
 
 if TYPE_CHECKING:
@@ -99,6 +107,15 @@ class DefaultHookHandler:
         :return: Processing result for logging and emission.
         """
         normalized_payload = cast(HookPayload, payload)
+        if is_ask_user_question_payload(normalized_payload):
+            ask_result = self.handle_ask_user_question(
+                normalized_payload,
+                transport,
+                current_error=current_error,
+            )
+            if ask_result is not None:
+                return ask_result
+
         dialog = provider_client.build_permission_dialog(normalized_payload)
         dialog_result = transport.show_dialog(dialog)
         response = (
@@ -106,6 +123,41 @@ class DefaultHookHandler:
             if dialog_result.button is not None
             else DEFAULT_HOOK_RESPONSE
         )
+        return HookProcessingResult(
+            display=dialog,
+            transport_result=dialog_result.transport,
+            response=response,
+            error=self.transport_error(dialog_result.transport, current_error),
+        )
+
+    def handle_ask_user_question(
+        self,
+        payload: HookPayload,
+        transport: DisplayTransport,
+        *,
+        current_error: str | None = None,
+    ) -> HookProcessingResult | None:
+        """Show the AskUserQuestion picker and inject collected answers.
+
+        :param payload: Normalized permission payload.
+        :type payload: HookPayload
+        :param transport: UI transport implementation.
+        :type transport: DisplayTransport
+        :param current_error: Existing processing error, if any.
+        :type current_error: str | None
+        :return: Processing result, or ``None`` when the transport cannot present the
+            picker so the caller should fall back to the standard permission dialog.
+        """
+        dialog = build_ask_user_question_dialog(payload)
+        dialog_result = transport.show_ask_user_question_dialog(dialog)
+        if dialog_result.transport.status == TransportStatus.SKIPPED:
+            return None
+
+        if dialog_result.answers is None:
+            response = build_ask_user_question_cancel_response(payload)
+        else:
+            response = build_ask_user_question_response(payload, dialog_result.answers)
+
         return HookProcessingResult(
             display=dialog,
             transport_result=dialog_result.transport,

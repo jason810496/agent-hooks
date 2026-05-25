@@ -67,6 +67,7 @@ class AppleScriptInvocation(str, Enum):
 
     NOTIFICATION = "notification"
     DIALOG = "dialog"
+    ASK_USER_QUESTION = "ask-user-question"
 
 
 class TransportStatus(str, Enum):

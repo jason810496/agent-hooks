@@ -6,9 +6,13 @@ from dataclasses import dataclass
 
 from agent_hooks.enums import DialogButton, HookEventName, PermissionBehavior, PermissionDestination
 from agent_hooks.models.schemas.hooks import HookPayload
-from agent_hooks.models.schemas.json_types import JsonObject
+from agent_hooks.models.schemas.json_types import JsonObject, JsonValue
 from agent_hooks.models.schemas.permissions import PermissionDecision, PermissionUpdate
-from agent_hooks.models.schemas.responses import AppleScriptDialogResponse, HookSpecificOutput
+from agent_hooks.models.schemas.responses import (
+    AppleScriptDialogResponse,
+    HookResponse,
+    HookSpecificOutput,
+)
 from agent_hooks.providers.common import coerce_object_list, coerce_text
 
 
@@ -84,6 +88,42 @@ def first_permission_rule(payload: HookPayload) -> PermissionRule | None:
     if not first_suggestion.rules:
         return None
     return first_suggestion.rules[0]
+
+
+def build_ask_user_question_response(
+    payload: HookPayload,
+    answers: dict[str, str],
+) -> HookResponse:
+    """Build the AskUserQuestion allow response that injects collected answers."""
+    updated_input: JsonValue = {
+        "questions": payload.tool_input.raw.get("questions", []),
+        "answers": dict(answers),
+    }
+    return HookResponse(
+        suppress_output=True,
+        hook_specific_output=HookSpecificOutput(
+            hook_event_name=HookEventName.PERMISSION_REQUEST,
+            decision=PermissionDecision(
+                behavior=PermissionBehavior.ALLOW,
+                updated_input=updated_input,
+            ),
+        ),
+    )
+
+
+def build_ask_user_question_cancel_response(payload: HookPayload) -> HookResponse:
+    """Build the response sent when the user cancels the AskUserQuestion picker."""
+    del payload
+    return HookResponse(
+        suppress_output=True,
+        hook_specific_output=HookSpecificOutput(
+            hook_event_name=HookEventName.PERMISSION_REQUEST,
+            decision=PermissionDecision(
+                behavior=PermissionBehavior.DENY,
+                message="Cancelled by local user.",
+            ),
+        ),
+    )
 
 
 def _build_permission_decision(

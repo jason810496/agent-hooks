@@ -13,6 +13,7 @@ RAW_EVENT_TO_NORMALIZED = {
     "Stop": HookEventName.STOP,
     "StopFailure": HookEventName.STOP_FAILURE,
 }
+ASK_USER_QUESTION_TOOL_NAME = "AskUserQuestion"
 CLAUDE_ONLY_EVENTS = frozenset(
     {
         "Notification",
@@ -47,7 +48,11 @@ def matches_payload(raw_payload: JsonObject) -> bool:
         return True
     if raw_event_name == "SessionStart":
         return not any(marker in raw_payload for marker in CODEX_MARKERS)
-    if raw_event_name in {"PreToolUse", "PostToolUse", "UserPromptSubmit"}:
+    if raw_event_name == "PreToolUse":
+        if "turn_id" in raw_payload:
+            return False
+        return coerce_text(raw_payload.get("tool_name")) == ASK_USER_QUESTION_TOOL_NAME
+    if raw_event_name in {"PostToolUse", "UserPromptSubmit"}:
         return False
     if raw_event_name == "Stop":
         return "turn_id" not in raw_payload
@@ -59,11 +64,16 @@ def build_hook_payload(raw_payload: JsonObject) -> HookPayload:
     raw_event_name = coerce_text(raw_payload.get("hook_event_name"))
     raw_notification_type = coerce_text(raw_payload.get("notification_type"))
     tool_input_raw = coerce_object(raw_payload.get("tool_input"))
+    tool_name = coerce_text(raw_payload.get("tool_name"))
+
+    event_name = RAW_EVENT_TO_NORMALIZED.get(raw_event_name, HookEventName.UNKNOWN)
+    if raw_event_name == "PreToolUse" and tool_name == ASK_USER_QUESTION_TOOL_NAME:
+        event_name = HookEventName.PERMISSION_REQUEST
 
     return HookPayload(
         raw=dict(raw_payload),
         provider=HookProvider.CLAUDE_CODE,
-        event_name=RAW_EVENT_TO_NORMALIZED.get(raw_event_name, HookEventName.UNKNOWN),
+        event_name=event_name,
         raw_event_name=raw_event_name,
         raw_notification_type=raw_notification_type,
         model=coerce_text(raw_payload.get("model")),
@@ -78,7 +88,7 @@ def build_hook_payload(raw_payload: JsonObject) -> HookPayload:
         session_id=coerce_text(raw_payload.get("session_id")),
         cwd=coerce_text(raw_payload.get("cwd")),
         transcript_path=coerce_text(raw_payload.get("transcript_path")),
-        tool_name=coerce_text(raw_payload.get("tool_name")),
+        tool_name=tool_name,
         tool_use_id=coerce_text(raw_payload.get("tool_use_id")),
         tool_input=ToolInput(
             raw=tool_input_raw,

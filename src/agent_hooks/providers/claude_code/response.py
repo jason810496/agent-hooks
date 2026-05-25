@@ -77,12 +77,16 @@ def render_hook_specific_output(
         behavior = coerce_text(decision.get("behavior"))
         if behavior:
             payload["permissionDecision"] = behavior
-        if raw_payload.get("permissionDecisionReason"):
-            payload["permissionDecisionReason"] = coerce_text(
-                raw_payload.get("permissionDecisionReason")
-            )
-        if raw_payload.get("updatedInput") is not None:
-            payload["updatedInput"] = raw_payload.get("updatedInput")
+        reason = coerce_text(decision.get("message")) or coerce_text(
+            raw_payload.get("permissionDecisionReason")
+        )
+        if reason:
+            payload["permissionDecisionReason"] = reason
+        updated_input = decision.get("updatedInput")
+        if updated_input is None:
+            updated_input = raw_payload.get("updatedInput")
+        if updated_input is not None:
+            payload["updatedInput"] = updated_input
         if raw_payload.get("additionalContext"):
             payload["additionalContext"] = coerce_text(raw_payload.get("additionalContext"))
         return payload if len(payload) > 1 else {}
