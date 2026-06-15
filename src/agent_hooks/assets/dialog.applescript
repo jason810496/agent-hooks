@@ -15,8 +15,11 @@ on run argv
     set alert to current application's NSAlert's alloc()'s init()
     alert's setMessageText:theTitle
     alert's setInformativeText:theMessage
-    repeat with buttonTitle in buttonList
-        alert's addButtonWithTitle:(buttonTitle as text)
+    -- NSAlert anchors the first-added button on the right. Add buttons in reverse
+    -- so the on-screen order (left to right) matches buttonList order, and let
+    -- NSAlert lay them out natively to avoid overlap and hit-test mismatches.
+    repeat with i from (count of buttonList) to 1 by -1
+        alert's addButtonWithTitle:((item i of buttonList) as text)
     end repeat
     my setAlertIcon(alert, theIconPath)
     alert's layout()
@@ -24,13 +27,14 @@ on run argv
     my clearButtonDefaultState(alert)
     alert's layout()
     my setAlertWidthForVisibleLines(alert, theMessage, theFontSize)
-    my layoutAlertButtons(alert, theMessage)
 
     set responseCode to (alert's runModal()) as integer
-    set buttonIndex to responseCode - 999
-    if buttonIndex < 1 or buttonIndex > (count of buttonList) then
+    -- Buttons were added in reverse, so map the return code back to buttonList.
+    set addedIndex to responseCode - 999
+    if addedIndex < 1 or addedIndex > (count of buttonList) then
         return ""
     end if
+    set buttonIndex to (count of buttonList) - addedIndex + 1
     return "button returned:" & (item buttonIndex of buttonList)
 end run
 
@@ -153,17 +157,18 @@ on setAlertWidthForVisibleLines(alert, textValue, theFontSize)
         set desiredTextWidth to maximumTextWidth
     end if
 
-    set frameRect to textField's frame()
-    set frameOrigin to item 1 of frameRect
-    set frameSize to item 2 of frameRect
+    set frameSize to item 2 of (textField's frame())
     set currentWidth to (item 1 of frameSize) as real
     if desiredTextWidth is less than or equal to currentWidth then
         return
     end if
 
-    textField's setPreferredMaxLayoutWidth:desiredTextWidth
-    textField's setFrame:(current application's NSMakeRect((item 1 of frameOrigin) as real, (item 2 of frameOrigin) as real, desiredTextWidth, (item 2 of frameSize) as real))
-    my widenWindowForTextField(alert, textField, desiredTextWidth)
+    -- Widen the alert through a spacer accessory view so NSAlert re-runs its own
+    -- layout pass. Resizing the window directly would break the buttons' layout.
+    set spacerView to current application's NSView's alloc()'s initWithFrame:(current application's NSMakeRect(0, 0, desiredTextWidth, 1))
+    alert's setAccessoryView:spacerView
+    alert's layout()
+    my setAlertFontSize(alert, theFontSize)
 end setAlertWidthForVisibleLines
 
 on findTextFieldWithValue(parentView, textValue)
@@ -230,112 +235,6 @@ on maximumDialogTextWidth()
     end if
     return maximumWidth
 end maximumDialogTextWidth
-
-on widenWindowForTextField(alert, textField, desiredTextWidth)
-    set windowObject to alert's |window|()
-    set contentView to windowObject's contentView()
-    set contentFrame to contentView's frame()
-    set contentSize to item 2 of contentFrame
-    set textFrame to textField's frame()
-    set textOrigin to item 1 of textFrame
-    set requiredContentWidth to ((item 1 of textOrigin) as real) + desiredTextWidth + 24
-    set currentContentWidth to (item 1 of contentSize) as real
-    if requiredContentWidth is less than or equal to currentContentWidth then
-        return
-    end if
-
-    windowObject's setContentSize:(current application's NSMakeSize(requiredContentWidth, (item 2 of contentSize) as real))
-end widenWindowForTextField
-
-on layoutAlertButtons(alert, theMessage)
-    set buttonCount to count of (alert's buttons())
-    if buttonCount is 0 then
-        return
-    end if
-
-    set buttonGap to 8
-    set sideMargin to 16
-    set bottomMargin to 16
-    set totalButtonWidth to (buttonCount - 1) * buttonGap
-    set buttonHeight to 28
-    repeat with alertButton in (alert's buttons())
-        set totalButtonWidth to totalButtonWidth + (my buttonWidthForLayout(alertButton))
-        set frameRect to alertButton's frame()
-        set frameSize to item 2 of frameRect
-        set frameHeight to (item 2 of frameSize) as real
-        if frameHeight is greater than buttonHeight then
-            set buttonHeight to frameHeight
-        end if
-    end repeat
-
-    set windowObject to alert's |window|()
-    set contentView to windowObject's contentView()
-    set layoutBounds to my buttonHorizontalBoundsForLayout(contentView, theMessage, sideMargin)
-    set buttonLeftBound to item 1 of layoutBounds
-    set buttonRightBound to item 2 of layoutBounds
-    set contentFrame to contentView's frame()
-    set contentSize to item 2 of contentFrame
-    set requiredContentWidth to buttonLeftBound + totalButtonWidth + sideMargin
-    if requiredContentWidth is greater than ((item 1 of contentSize) as real) then
-        windowObject's setContentSize:(current application's NSMakeSize(requiredContentWidth, (item 2 of contentSize) as real))
-        set contentFrame to contentView's frame()
-        set contentSize to item 2 of contentFrame
-        set layoutBounds to my buttonHorizontalBoundsForLayout(contentView, theMessage, sideMargin)
-        set buttonLeftBound to item 1 of layoutBounds
-        set buttonRightBound to item 2 of layoutBounds
-    end if
-
-    if (buttonRightBound - buttonLeftBound) is less than totalButtonWidth then
-        set buttonLeftBound to sideMargin
-        set buttonRightBound to ((item 1 of contentSize) as real) - sideMargin
-    end if
-
-    -- NSViewMinXMargin + NSViewMaxYMargin: keep buttons anchored after final sizing.
-    set buttonAutoresizingMask to 33
-    set nextButtonLeftEdge to buttonLeftBound + ((buttonRightBound - buttonLeftBound - totalButtonWidth) / 2)
-    repeat with alertButton in (alert's buttons())
-        set buttonWidth to my buttonWidthForLayout(alertButton)
-        alertButton's setAutoresizingMask:buttonAutoresizingMask
-        alertButton's setFrame:(current application's NSMakeRect(nextButtonLeftEdge, bottomMargin, buttonWidth, buttonHeight))
-        set nextButtonLeftEdge to nextButtonLeftEdge + buttonWidth + buttonGap
-    end repeat
-end layoutAlertButtons
-
-on buttonHorizontalBoundsForLayout(contentView, theMessage, sideMargin)
-    set contentFrame to contentView's frame()
-    set contentSize to item 2 of contentFrame
-    set defaultLeftBound to sideMargin
-    set defaultRightBound to ((item 1 of contentSize) as real) - sideMargin
-    set textField to my findTextFieldWithValue(contentView, theMessage)
-    if textField is missing value then
-        return {defaultLeftBound, defaultRightBound}
-    end if
-
-    set textFrame to textField's frame()
-    set textOrigin to item 1 of textFrame
-    set textSize to item 2 of textFrame
-    set textLeftEdge to (item 1 of textOrigin) as real
-    set textRightEdge to textLeftEdge + ((item 1 of textSize) as real)
-    if textLeftEdge is less than sideMargin then
-        set textLeftEdge to sideMargin
-    end if
-    if textRightEdge is greater than defaultRightBound then
-        set textRightEdge to defaultRightBound
-    end if
-    if textRightEdge is less than or equal to textLeftEdge then
-        return {defaultLeftBound, defaultRightBound}
-    end if
-    return {textLeftEdge, textRightEdge}
-end buttonHorizontalBoundsForLayout
-
-on buttonWidthForLayout(alertButton)
-    set buttonSize to alertButton's intrinsicContentSize()
-    set buttonWidth to ((buttonSize's width) as real) + 24
-    if buttonWidth is less than 80 then
-        return 80
-    end if
-    return buttonWidth
-end buttonWidthForLayout
 
 on resizedFont(sourceFont, theFontSize)
     if sourceFont is missing value then
