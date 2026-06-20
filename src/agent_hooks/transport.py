@@ -227,7 +227,18 @@ class AppleScriptTransport:
             return transport, None
 
         stdout = transport.stdout
-        if stdout == ASK_USER_QUESTION_CANCELLED_MARKER or stdout.startswith("ERROR:"):
+        if stdout.startswith("ERROR:"):
+            # The AppleScript caught an internal error and exited zero. Surface it as a
+            # transport failure so callers fall back instead of treating it as a cancel.
+            failed = AppleScriptResult(
+                status=TransportStatus.FAILED,
+                invocation=transport.invocation,
+                returncode=transport.returncode,
+                stdout=transport.stdout,
+                stderr=stdout,
+            )
+            return failed, None
+        if stdout == ASK_USER_QUESTION_CANCELLED_MARKER:
             return transport, None
 
         selections = [item for item in stdout.split(ASK_USER_QUESTION_SEPARATOR) if item]

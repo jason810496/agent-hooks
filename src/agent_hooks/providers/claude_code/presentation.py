@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from agent_hooks.enums import DialogButton, HookEventName, NotificationSound
+from agent_hooks.enums import DialogButton, HookEventName, HookProvider, NotificationSound
 from agent_hooks.models.schemas.display import (
     AskUserQuestionDialogSpec,
     AskUserQuestionEntry,
@@ -100,6 +100,8 @@ def build_permission_dialog(payload: HookPayload) -> DialogSpec:
 
 def is_ask_user_question_payload(payload: HookPayload) -> bool:
     """Return whether the payload represents an AskUserQuestion permission request."""
+    if payload.provider != HookProvider.CLAUDE_CODE:
+        return False
     if payload.tool_name != ASK_USER_QUESTION_TOOL_NAME:
         return False
     return bool(coerce_object_list(payload.tool_input.raw.get("questions")))
@@ -151,9 +153,7 @@ def format_ask_user_question_preview(payload: HookPayload) -> str:
             limit=ASK_USER_QUESTION_TEXT_LIMIT,
         )
         header = compact_text(coerce_text(question_raw.get("header")), limit=60)
-        select_kind = (
-            "multi-select" if bool(question_raw.get("multiSelect")) else "single-select"
-        )
+        select_kind = "multi-select" if bool(question_raw.get("multiSelect")) else "single-select"
 
         title_parts = [f"Q{index}"]
         if header:

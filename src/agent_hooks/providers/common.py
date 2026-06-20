@@ -9,7 +9,7 @@ from agent_hooks.config import (
     DEFAULT_COMMAND_PREVIEW_MAX_LINE_CHARS,
     DEFAULT_COMMAND_PREVIEW_MAX_TOTAL_CHARS,
     DEFAULT_COMMAND_PREVIEW_MAX_TOTAL_LINES,
-    load_runtime_config,
+    get_active_runtime_config,
 )
 from agent_hooks.models.schemas.hooks import HookPayload
 from agent_hooks.models.schemas.json_types import JsonObject, JsonValue
@@ -185,7 +185,7 @@ def _resolve_preview_limits(
     max_line_chars: int | None,
 ) -> tuple[int, int, int]:
     """Return configured command preview limits, honoring explicit overrides."""
-    config = load_runtime_config()
+    config = get_active_runtime_config()
     return (
         _resolve_preview_limit(
             max_total_chars,

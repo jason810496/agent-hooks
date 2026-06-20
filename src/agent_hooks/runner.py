@@ -14,7 +14,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import IO, TYPE_CHECKING
 
-from agent_hooks.config import RuntimeConfig, load_runtime_config
+from agent_hooks.config import RuntimeConfig, load_runtime_config, use_runtime_config
 from agent_hooks.enums import HookProvider
 from agent_hooks.logging_utils import (
     append_application_log,
@@ -328,7 +328,8 @@ def run_callback(
         dialog_font_size=config.dialog_font_size,
         notification_timeout=config.notification_timeout_seconds,
     )
-    result = hook.dispatch(input_data, display_transport)
+    with use_runtime_config(config):
+        result = hook.dispatch(input_data, display_transport)
     response_text = _render_hook_response(
         result.response,
         provider=resolved_provider,

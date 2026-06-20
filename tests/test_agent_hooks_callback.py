@@ -61,9 +61,10 @@ from agent_hooks.models.schemas.display import (
     AskUserQuestionDialogResult,
     AskUserQuestionDialogSpec,
 )
-from agent_hooks.models.schemas.hooks import HookPayload
+from agent_hooks.models.schemas.hooks import HookPayload, ToolInput
 from agent_hooks.parsing import build_hook_payload, read_hook_input
 from agent_hooks.providers import provider_client
+from agent_hooks.providers.claude_code.presentation import is_ask_user_question_payload
 from agent_hooks.providers.codex.middleware import (
     CODEX_EXECPOLICY_RULES_ENV_VAR,
     run_codex_execpolicy_check,
@@ -538,6 +539,46 @@ class TestAskUserQuestionFlow:
         assert transport.ask_user_question_calls == 1
         assert transport.dialog_calls == 1
         assert isinstance(result.display, DialogSpec)
+
+    def test_handle_ask_user_question_falls_back_when_transport_failed(self) -> None:
+        payload = self._payload()
+        transport = FakeTransport(
+            ask_user_question_result=AskUserQuestionDialogResult(
+                answers=None,
+                transport=AppleScriptResult(
+                    status=TransportStatus.FAILED,
+                    invocation=AppleScriptInvocation.ASK_USER_QUESTION,
+                    stderr="ERROR:-1:boom",
+                ),
+            ),
+        )
+
+        result = process_permission_request(payload, transport)
+
+        # A transport failure must not be treated as a user cancellation/deny; it should
+        # fall back to the standard permission dialog.
+        assert transport.ask_user_question_calls == 1
+        assert transport.dialog_calls == 1
+        assert isinstance(result.display, DialogSpec)
+
+    def test_is_ask_user_question_payload_requires_claude_provider(self) -> None:
+        raw = {
+            "tool_name": "AskUserQuestion",
+            "tool_input": {"questions": [{"question": "Pick one", "options": [{"label": "A"}]}]},
+        }
+        claude_payload = HookPayload(
+            provider=HookProvider.CLAUDE_CODE,
+            tool_name="AskUserQuestion",
+            tool_input=ToolInput(raw=raw["tool_input"]),
+        )
+        codex_payload = HookPayload(
+            provider=HookProvider.CODEX,
+            tool_name="AskUserQuestion",
+            tool_input=ToolInput(raw=raw["tool_input"]),
+        )
+
+        assert is_ask_user_question_payload(claude_payload) is True
+        assert is_ask_user_question_payload(codex_payload) is False
 
 
 class TestPermissionResponse:
@@ -1265,6 +1306,44 @@ class TestAgentHook:
 
         assert result.response.as_payload() == {"suppressOutput": False}
 
+    def test_permission_decorator_supports_class_dependency_injection(self) -> None:
+        hook = AgentHook()
+
+        class CommandContext:
+            def __init__(
+                self,
+                request: CallbackRequest,
+                hook_event: PermissionRequestEvent,
+            ) -> None:
+                assert request.payload.tool_name == hook_event.tool_name
+                self.value = f"{hook_event.tool_name}:{hook_event.tool_input.command}"
+
+        command_context_dependency = Depends(CommandContext)
+
+        @hook.permission()
+        def permission_callback(
+            context: object = command_context_dependency,
+        ) -> HookResponse:
+            assert isinstance(context, CommandContext)
+            assert context.value == "Bash:git status"
+            return HookResponse(suppress_output=False)
+
+        input_data = read_hook_input(
+            StringIO(
+                """
+                {
+                  "hook_event_name": "PermissionRequest",
+                  "tool_name": "Bash",
+                  "tool_input": {"command": "git status"}
+                }
+                """
+            )
+        )
+
+        result = hook.dispatch(input_data, FakeTransport())
+
+        assert result.response.as_payload() == {"suppressOutput": False}
+
     def test_permission_decorator_supports_yield_dependency_cleanup(self) -> None:
         hook = AgentHook()
         events: list[str] = []
@@ -1858,6 +1937,50 @@ class TestRunCallback:
         )
         load_runtime_config.cache_clear()
 
+        assert exit_code == 0
+        assert len(transport.dialogs) == 1
+        dialog = transport.dialogs[0]
+        assert isinstance(dialog, DialogSpec)
+        assert dialog.message == ("Tool: Bash\nCommand:\n1234567890\nsecond\n… +2 lines")
+
+    def test_run_callback_applies_command_preview_limits_from_passed_runtime_config(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        stdin = StringIO(
+            """
+            {
+              "hook_event_name": "PreToolUse",
+              "cwd": "/tmp/project",
+              "model": "gpt-5.4",
+              "permission_mode": "default",
+              "session_id": "session-1",
+              "tool_input": {"command": "1234567890\\nsecond\\nthird\\nfourth"},
+              "tool_name": "Bash",
+              "tool_use_id": "tool-1",
+              "transcript_path": null,
+              "turn_id": "turn-1"
+            }
+            """
+        )
+        stdout = StringIO()
+        transport = FakeTransport()
+        runtime_config = build_runtime_config(
+            tmp_path,
+            provider=HookProvider.CODEX,
+            command_preview_max_total_chars=20,
+            command_preview_max_total_lines=2,
+        )
+
+        exit_code = run_callback(
+            app,
+            stdin=stdin,
+            stdout=stdout,
+            transport=transport,
+            runtime_config=runtime_config,
+        )
+
+        # Limits supplied programmatically (not via AGENT_HOOK_* env vars) must be honored.
         assert exit_code == 0
         assert len(transport.dialogs) == 1
         dialog = transport.dialogs[0]

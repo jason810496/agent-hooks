@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import logging
 import os
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
@@ -131,6 +133,11 @@ class RuntimeConfig:
         return self.audit_logging.response_file.path
 
 
+_ACTIVE_RUNTIME_CONFIG: ContextVar[RuntimeConfig | None] = ContextVar(
+    "agent_hooks_active_runtime_config", default=None
+)
+
+
 def load_runtime_config(env: Mapping[str, str] | None = None) -> RuntimeConfig:
     """Build the runtime configuration from the current environment.
 
@@ -141,6 +148,37 @@ def load_runtime_config(env: Mapping[str, str] | None = None) -> RuntimeConfig:
     if env is None:
         return _load_current_runtime_config()
     return _build_runtime_config(env)
+
+
+@contextmanager
+def use_runtime_config(config: RuntimeConfig) -> Iterator[None]:
+    """Bind the active runtime configuration for the current execution context.
+
+    Deep presentation helpers (for example command-preview formatting) read the
+    bound configuration through :func:`get_active_runtime_config` so that an
+    explicitly supplied :class:`RuntimeConfig` is honored instead of the cached
+    process-environment configuration.
+
+    :param config: Runtime configuration to bind for the nested block.
+    :type config: RuntimeConfig
+    """
+    token = _ACTIVE_RUNTIME_CONFIG.set(config)
+    try:
+        yield
+    finally:
+        _ACTIVE_RUNTIME_CONFIG.reset(token)
+
+
+def get_active_runtime_config() -> RuntimeConfig:
+    """Return the runtime configuration bound for the current execution context.
+
+    :return: The configuration bound by :func:`use_runtime_config`, or the cached
+        process-environment configuration when none is bound.
+    """
+    active = _ACTIVE_RUNTIME_CONFIG.get()
+    if active is not None:
+        return active
+    return load_runtime_config()
 
 
 @cache

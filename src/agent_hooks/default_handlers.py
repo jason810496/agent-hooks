@@ -150,7 +150,10 @@ class DefaultHookHandler:
         """
         dialog = build_ask_user_question_dialog(payload)
         dialog_result = transport.show_ask_user_question_dialog(dialog)
-        if dialog_result.transport.status == TransportStatus.SKIPPED:
+        if dialog_result.transport.status != TransportStatus.SUCCEEDED:
+            # Skipped (unsupported platform) or a transport/script failure: fall back to
+            # the standard permission dialog instead of denying. A genuine cancellation
+            # returns a succeeded transport and is handled below.
             return None
 
         if dialog_result.answers is None:

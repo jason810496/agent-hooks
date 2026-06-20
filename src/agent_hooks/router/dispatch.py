@@ -168,6 +168,30 @@ def build_injected_arguments(
     )
 
 
+def _resolve_callable_annotations(
+    handler: RouteHandler | DependencyCallable,
+) -> dict[str, object]:
+    """Return resolved type hints from the callable that ``signature()`` inspects.
+
+    ``signature()`` reports ``__init__`` parameters for a class and ``__call__``
+    parameters for a callable instance, so the annotations must be resolved from the
+    same target. Resolving ``get_type_hints(handler)`` directly would read class
+    attribute annotations instead, leaving parameter annotations as unparsed strings
+    under ``from __future__ import annotations``.
+
+    :param handler: Function, method, class, or callable instance to inspect.
+    :type handler: RouteHandler | DependencyCallable
+    :return: Mapping of parameter name to resolved type hint.
+    """
+    if isinstance(handler, type):
+        return get_type_hints(handler.__init__)
+    if not hasattr(handler, "__code__"):
+        # Callable instances expose parameters through their class ``__call__`` rather
+        # than ``__code__`` (which functions, methods, and lambdas carry directly).
+        return get_type_hints(type(handler).__call__)
+    return get_type_hints(handler)
+
+
 def _build_callable_injected_arguments(
     handler: RouteHandler | DependencyCallable,
     event_model: type[HookEvent],
@@ -188,7 +212,7 @@ def _build_callable_injected_arguments(
     :return: Injected argument definitions in declaration order.
     :raises ValueError: If the callable has an unsupported required parameter.
     """
-    resolved_annotations = get_type_hints(handler)
+    resolved_annotations = _resolve_callable_annotations(handler)
     injected_arguments: list[InjectedArgument] = []
     for parameter in signature(handler).parameters.values():
         dependency_argument = _build_dependency_argument(
@@ -450,9 +474,7 @@ def _enter_generator_dependency(
     try:
         value = next(generator)
     except StopIteration as error:
-        raise ValueError(
-            f"Dependency '{dependency_name}' must yield exactly one value."
-        ) from error
+        raise ValueError(f"Dependency '{dependency_name}' must yield exactly one value.") from error
 
     exit_stack.callback(
         _close_generator_dependency,
@@ -480,9 +502,7 @@ def _close_generator_dependency(
     except StopIteration:
         return
     generator.close()
-    raise ValueError(
-        f"Dependency '{dependency_name}' must yield exactly one value."
-    )
+    raise ValueError(f"Dependency '{dependency_name}' must yield exactly one value.")
 
 
 def _unsupported_parameter_message(

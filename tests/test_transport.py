@@ -587,6 +587,46 @@ def test_show_ask_user_question_dialog_reports_cancellation(monkeypatch) -> None
 
     assert result.cancelled is True
     assert result.answers is None
+    assert result.transport.status == TransportStatus.SUCCEEDED
+
+
+def test_show_ask_user_question_dialog_marks_script_error_as_failed(monkeypatch) -> None:
+    transport = AppleScriptTransport(skip_osascript=False)
+
+    def fake_run_osascript(
+        *,
+        invocation: AppleScriptInvocation,
+        arguments: list[str],
+        script: str,
+    ) -> AppleScriptResult:
+        return AppleScriptResult(
+            status=TransportStatus.SUCCEEDED,
+            invocation=invocation,
+            returncode=0,
+            stdout="ERROR:-128:User cancelled.",
+        )
+
+    monkeypatch.setattr(transport, "_run_osascript", fake_run_osascript)
+
+    result = transport.show_ask_user_question_dialog(
+        AskUserQuestionDialogSpec(
+            title="Claude Code",
+            questions=(
+                AskUserQuestionEntry(
+                    question="Pick one",
+                    header="Pick",
+                    multi_select=False,
+                    options=(AskUserQuestionOption(label="A"),),
+                ),
+            ),
+        )
+    )
+
+    # A script-reported error must surface as a transport failure (not a cancellation)
+    # so the caller falls back instead of denying.
+    assert result.answers is None
+    assert result.transport.status == TransportStatus.FAILED
+    assert "ERROR:" in result.transport.stderr
 
 
 def test_send_notification_passes_configured_timeout(monkeypatch) -> None:
