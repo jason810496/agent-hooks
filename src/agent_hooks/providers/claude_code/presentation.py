@@ -153,7 +153,9 @@ def format_ask_user_question_preview(payload: HookPayload) -> str:
             limit=ASK_USER_QUESTION_TEXT_LIMIT,
         )
         header = compact_text(coerce_text(question_raw.get("header")), limit=60)
-        select_kind = "multi-select" if bool(question_raw.get("multiSelect")) else "single-select"
+        select_kind = (
+            "multi-select" if coerce_bool(question_raw.get("multiSelect")) else "single-select"
+        )
 
         title_parts = [f"Q{index}"]
         if header:

@@ -151,7 +151,7 @@ If you also keep the `PermissionRequest` hook from the Quick Setup, Agent Hooks 
 
 #### Fallback
 
-If `osascript` is unavailable (non-macOS hosts, sandboxed environments, or `AGENT_HOOKS_SKIP_OSASCRIPT=1`), Agent Hooks falls back to the standard permission dialog with a text preview of the questions so the request is still actionable.
+If `osascript` is unavailable (non-macOS hosts, sandboxed environments, or `AGENT_HOOK_DISABLE_OSASCRIPT=1`), Agent Hooks falls back to the standard permission dialog with a text preview of the questions so the request is still actionable.
 
 #### Try it
 

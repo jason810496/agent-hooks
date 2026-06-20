@@ -5,7 +5,8 @@ from __future__ import annotations
 from collections.abc import Generator
 from contextlib import ExitStack
 from dataclasses import fields
-from inspect import Parameter, isgenerator, signature
+from functools import partial
+from inspect import Parameter, isgenerator, signature, unwrap
 from types import TracebackType
 from typing import get_type_hints
 
@@ -174,27 +175,31 @@ def _resolve_callable_annotations(
 ) -> dict[str, object]:
     """Return resolved type hints from the callable that ``signature()`` inspects.
 
-    ``signature()`` reports ``__init__`` parameters for a class and ``__call__``
-    parameters for a callable instance, so the annotations must be resolved from the
-    same target. Resolving ``get_type_hints(handler)`` directly would read class
-    attribute annotations instead, leaving parameter annotations as unparsed strings
+    ``signature()`` unwraps ``functools.wraps`` decorators and ``functools.partial``
+    objects and reports ``__init__`` parameters for a class and ``__call__`` parameters
+    for a callable instance. The annotations must be resolved from that same target, so
+    the handler is unwrapped first; resolving ``get_type_hints`` on the outer wrapper or
+    on a class body would otherwise leave parameter annotations as unparsed strings
     under ``from __future__ import annotations``.
 
-    :param handler: Function, method, class, or callable instance to inspect.
+    :param handler: Function, method, class, partial, or callable instance to inspect.
     :type handler: RouteHandler | DependencyCallable
     :return: Mapping of parameter name to resolved type hint.
     """
-    if isinstance(handler, type):
-        if handler.__init__ is object.__init__:
+    target: object = unwrap(handler)
+    if isinstance(target, partial):
+        target = target.func
+    if isinstance(target, type):
+        if target.__init__ is object.__init__:
             # A class without its own ``__init__`` exposes ``object``'s slot wrapper,
             # which ``get_type_hints`` cannot inspect on some Python versions.
             return {}
-        return get_type_hints(handler.__init__)
-    if not hasattr(handler, "__code__"):
+        return get_type_hints(target.__init__)
+    if not hasattr(target, "__code__"):
         # Callable instances expose parameters through their class ``__call__`` rather
         # than ``__code__`` (which functions, methods, and lambdas carry directly).
-        return get_type_hints(type(handler).__call__)
-    return get_type_hints(handler)
+        return get_type_hints(type(target).__call__)
+    return get_type_hints(target)
 
 
 def _build_callable_injected_arguments(

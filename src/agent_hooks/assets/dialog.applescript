@@ -157,8 +157,7 @@ on setAlertWidthForVisibleLines(alert, textValue, theFontSize)
         set desiredTextWidth to maximumTextWidth
     end if
 
-    set frameSize to item 2 of (textField's frame())
-    set currentWidth to (item 1 of frameSize) as real
+    set currentWidth to (current application's NSWidth(textField's frame())) as real
     if desiredTextWidth is less than or equal to currentWidth then
         return
     end if
@@ -228,8 +227,7 @@ on maximumDialogTextWidth()
     end if
 
     set visibleFrame to mainScreen's visibleFrame()
-    set visibleSize to item 2 of visibleFrame
-    set maximumWidth to ((item 1 of visibleSize) as real) - 180
+    set maximumWidth to ((current application's NSWidth(visibleFrame)) as real) - 180
     if maximumWidth is less than 400 then
         return 400
     end if
