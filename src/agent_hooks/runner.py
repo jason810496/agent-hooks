@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import ast
 import contextlib
+import hashlib
 import importlib
+import importlib.util
 import json
 import sys
 from collections.abc import Iterator
@@ -58,7 +60,7 @@ class AgentHookFileLoader:
         module_path = self._resolve_module_path(reference)
         module_name = self._module_name_from_path(module_path)
         attribute_name = self._discover_agent_hook_name(module_path)
-        module = self._import_module(module_name)
+        module = self._import_module(module_path, module_name)
         target = getattr(module, attribute_name)
 
         from agent_hooks.router import AgentHook
@@ -82,16 +84,38 @@ class AgentHookFileLoader:
             module_path = self.app_dir / module_path
         return module_path.resolve()
 
-    def _import_module(self, module_name: str) -> ModuleType:
-        """Import one module while temporarily prepending ``app_dir`` to ``sys.path``.
+    def _import_module(self, module_path: Path, module_name: str) -> ModuleType:
+        """Load one Python file under a path-unique module name.
 
-        :param module_name: Importable module name.
+        The file is loaded by location rather than via ``import_module`` on the derived
+        name so that the exact requested file is executed even when its module name
+        collides with an already-imported module in a long-lived process (for example
+        two ``app_dir`` values that each contain a ``hooks.py``). ``app_dir`` stays on
+        ``sys.path`` during execution so the file's own absolute imports still resolve.
+
+        :param module_path: Absolute path to the Python file to load.
+        :type module_path: Path
+        :param module_name: Derived dotted module name, used for a readable unique name.
         :type module_name: str
         :return: Imported Python module.
+        :raises ValueError: If the file cannot be loaded.
         """
         importlib.invalidate_caches()
+        digest = hashlib.sha1(str(module_path).encode("utf-8")).hexdigest()[:12]
+        unique_name = f"agent_hooks_app_{module_name.replace('.', '_')}_{digest}"
+        spec = importlib.util.spec_from_file_location(unique_name, module_path)
+        if spec is None or spec.loader is None:
+            raise ValueError(f"Could not load Python file '{module_path}'.")
+
+        module = importlib.util.module_from_spec(spec)
         with self._prepend_sys_path():
-            return importlib.import_module(module_name)
+            sys.modules[unique_name] = module
+            try:
+                spec.loader.exec_module(module)
+            except BaseException:
+                sys.modules.pop(unique_name, None)
+                raise
+        return module
 
     @contextlib.contextmanager
     def _prepend_sys_path(self) -> Iterator[None]:

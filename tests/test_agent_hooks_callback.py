@@ -1933,6 +1933,23 @@ class TestAgentHookFileLoader:
 
         assert isinstance(target, AgentHook)
 
+    def test_load_isolates_same_filename_across_app_dirs(self, tmp_path: Path) -> None:
+        dir_a = tmp_path / "a"
+        dir_b = tmp_path / "b"
+        dir_a.mkdir()
+        dir_b.mkdir()
+        write_app_module(dir_a / "hooks.py")
+        write_app_module(dir_b / "hooks.py")
+
+        app_a = runner_module.AgentHookFileLoader(app_dir=dir_a).load("hooks.py")
+        app_b = runner_module.AgentHookFileLoader(app_dir=dir_b).load("hooks.py")
+
+        # Same file name in different directories must load distinct apps, not a stale
+        # sys.modules entry from the first load.
+        assert isinstance(app_a, AgentHook)
+        assert isinstance(app_b, AgentHook)
+        assert app_a is not app_b
+
 
 class TestRunCallback:
     def test_builtin_app_registers_codex_routes(self) -> None:
