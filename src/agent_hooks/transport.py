@@ -16,6 +16,7 @@ from agent_hooks.models.schemas.display import (
     AskUserQuestionDialogResult,
     AskUserQuestionDialogSpec,
     AskUserQuestionEntry,
+    AskUserQuestionOption,
     DialogResult,
     DialogSpec,
     NotificationSpec,
@@ -26,7 +27,6 @@ NOTIFICATION_SCRIPT_PATH: Final = ASSETS_PATH / "notification.applescript"
 DIALOG_SCRIPT_PATH: Final = ASSETS_PATH / "dialog.applescript"
 ASK_USER_QUESTION_SCRIPT_PATH: Final = ASSETS_PATH / "ask_user_question.applescript"
 OSASCRIPT_LOGO_PATH: Final = ASSETS_PATH / "osascript-logo.png"
-ASK_USER_QUESTION_SEPARATOR: Final = "\n##\n"
 ASK_USER_QUESTION_OK_MARKER: Final = "OK"
 ASK_USER_QUESTION_ERROR_PREFIX: Final = "ERROR:"
 ASK_USER_QUESTION_CANCELLED_MARKER: Final = "CANCELLED"
@@ -229,17 +229,18 @@ class AppleScriptTransport:
             return transport, None
 
         # ``_run_osascript`` already strips stdout; strip again so this parser stays
-        # correct even if called with an unstripped result (no trailing newline leaks
-        # into the final selection).
+        # correct even if called with an unstripped result.
         stdout = transport.stdout.strip()
 
-        # Selections are returned behind an "OK" status line so an option label that is
-        # literally "CANCELLED" or "ERROR:..." can never be read as a control sentinel.
+        # Selections come back as 1-based option indices behind an "OK" status line.
+        # Encoding indices (not label text) means an option label may contain any
+        # characters — including the cancel sentinel or a newline — without being
+        # misread as a delimiter or control value.
         if stdout == ASK_USER_QUESTION_OK_MARKER or stdout.startswith(
             f"{ASK_USER_QUESTION_OK_MARKER}\n"
         ):
             payload = stdout.partition("\n")[2]
-            selections = [item for item in payload.split(ASK_USER_QUESTION_SEPARATOR) if item]
+            selections = self._resolve_selection_indices(payload, entry.options)
             return transport, selections
 
         if stdout.startswith(ASK_USER_QUESTION_ERROR_PREFIX):
@@ -256,6 +257,30 @@ class AppleScriptTransport:
 
         # Anything else (including the bare "CANCELLED" sentinel) is a declined dialog.
         return transport, None
+
+    def _resolve_selection_indices(
+        self, payload: str, options: tuple[AskUserQuestionOption, ...]
+    ) -> list[str]:
+        """Map newline-separated 1-based option indices back to their labels.
+
+        :param payload: Status-line payload containing one option index per line.
+        :type payload: str
+        :param options: Options offered for this question, in display order.
+        :type options: tuple[AskUserQuestionOption, ...]
+        :return: Selected option labels in selection order.
+        """
+        selections: list[str] = []
+        for token in payload.split("\n"):
+            stripped = token.strip()
+            if not stripped:
+                continue
+            try:
+                index = int(stripped)
+            except ValueError:
+                continue
+            if 1 <= index <= len(options):
+                selections.append(options[index - 1].label)
+        return selections
 
     def _build_ask_user_question_prompt(self, entry: AskUserQuestionEntry) -> str:
         """Return the prompt text shown above the picker for one question.
@@ -388,7 +413,10 @@ class AppleScriptTransport:
         if marker not in stdout:
             return None
 
-        button_label = stdout.split(marker, 1)[1].split(",", 1)[0].splitlines()[0].strip()
+        button_label_lines = stdout.split(marker, 1)[1].split(",", 1)[0].splitlines()
+        if not button_label_lines:
+            return None
+        button_label = button_label_lines[0].strip()
         try:
             return DialogButton(button_label)
         except ValueError:

@@ -39,13 +39,21 @@ on run argv
     end if
 
     set output to ""
-    repeat with chosenIndex from 1 to (count of chosen)
-        if chosenIndex > 1 then
-            set output to output & linefeed & "##" & linefeed
-        end if
-        set output to output & (item chosenIndex of chosen)
+    set selectionCount to 0
+    repeat with chosenItem in chosen
+        repeat with optionIndex from 1 to (count of optionLabels)
+            if (item optionIndex of optionLabels) as text is (chosenItem as text) then
+                if selectionCount > 0 then
+                    set output to output & linefeed
+                end if
+                set output to output & optionIndex
+                set selectionCount to selectionCount + 1
+                exit repeat
+            end if
+        end repeat
     end repeat
-    -- Prefix selections with an "OK" status line so a selected option whose label is
-    -- literally "CANCELLED" or "ERROR:..." cannot be mistaken for a control sentinel.
+    -- Return selected option indices (1-based) behind an "OK" status line. Encoding
+    -- indices rather than label text means an option label may contain any characters
+    -- (including the cancel sentinel or newlines) without being misparsed.
     return "OK" & linefeed & output
 end run

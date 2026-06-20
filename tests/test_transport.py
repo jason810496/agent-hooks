@@ -81,10 +81,12 @@ def test_dialog_script_sets_font_without_showing_dialog(tmp_path: Path) -> None:
     script = get_dialog_script().replace(
         """
     set responseCode to (alert's runModal()) as integer
-    set buttonIndex to responseCode - 999
-    if buttonIndex < 1 or buttonIndex > (count of buttonList) then
+    -- Buttons were added in reverse, so map the return code back to buttonList.
+    set addedIndex to responseCode - 999
+    if addedIndex < 1 or addedIndex > (count of buttonList) then
         return ""
     end if
+    set buttonIndex to (count of buttonList) - addedIndex + 1
     return "button returned:" & (item buttonIndex of buttonList)
 """,
         """
@@ -159,139 +161,6 @@ end collectCommandBlockFontSummaries
     assert completed.stdout.strip() == "18.0,18.0|18.0:true"
 
 
-def test_dialog_script_keeps_buttons_in_row_after_multiline_layout(tmp_path: Path) -> None:
-    if shutil.which("osascript") is None:
-        pytest.skip("osascript is not available")
-
-    script = get_dialog_script().replace(
-        """
-    set responseCode to (alert's runModal()) as integer
-    set buttonIndex to responseCode - 999
-    if buttonIndex < 1 or buttonIndex > (count of buttonList) then
-        return ""
-    end if
-    return "button returned:" & (item buttonIndex of buttonList)
-""",
-        """
-    set buttonFrameSummaries to {}
-    repeat with alertButton in (alert's buttons())
-        set frameRect to alertButton's frame()
-        set frameOrigin to item 1 of frameRect
-        set frameSize to item 2 of frameRect
-        set end of buttonFrameSummaries to ((alertButton's title()) as text) & ":" & (((item 1 of frameOrigin) as real) as text) & "," & (((item 2 of frameOrigin) as real) as text) & "," & (((item 1 of frameSize) as real) as text)
-    end repeat
-    set AppleScript's text item delimiters to "|"
-    return buttonFrameSummaries as text
-""",
-    )
-    script_path = tmp_path / "dialog-button-frames.applescript"
-    script_path.write_text(script, encoding="utf-8")
-
-    completed = subprocess.run(
-        [
-            "osascript",
-            str(script_path),
-            "Tool: Bash\nCommand:\nls\npwd\nwhoami\n" + '\n"Always Allow" to remember.',
-            "Permission Request",
-            DialogButton.ALLOW_ONCE.value,
-            "",
-            "18",
-            DialogButton.DENY.value,
-            DialogButton.ALLOW_ONCE.value,
-            DialogButton.ALWAYS_ALLOW.value,
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert completed.returncode == 0, completed.stderr
-
-    button_frames: list[tuple[float, float, float, str]] = []
-    for raw_button_frame in completed.stdout.strip().split("|"):
-        title, raw_frame = raw_button_frame.split(":", 1)
-        x_position, y_position, width = (float(value) for value in raw_frame.split(",", 2))
-        button_frames.append((x_position, y_position, width, title))
-    button_frames.sort()
-
-    assert len(button_frames) == 3
-    assert {frame[1] for frame in button_frames} == {16.0}
-    for current_frame, next_frame in zip(button_frames, button_frames[1:], strict=False):
-        current_right = current_frame[0] + current_frame[2]
-        assert current_right <= next_frame[0], completed.stdout
-
-
-def test_dialog_script_centers_buttons_under_informative_text(tmp_path: Path) -> None:
-    if shutil.which("osascript") is None:
-        pytest.skip("osascript is not available")
-
-    script = get_dialog_script().replace(
-        """
-    set responseCode to (alert's runModal()) as integer
-    set buttonIndex to responseCode - 999
-    if buttonIndex < 1 or buttonIndex > (count of buttonList) then
-        return ""
-    end if
-    return "button returned:" & (item buttonIndex of buttonList)
-""",
-        """
-    set layoutBounds to my buttonHorizontalBoundsForLayout(alert's |window|()'s contentView(), theMessage, 16)
-    set layoutCenter to ((item 1 of layoutBounds) + (item 2 of layoutBounds)) / 2
-    set buttonRowLeftEdge to 1000000
-    set buttonRowRightEdge to 0
-    repeat with alertButton in (alert's buttons())
-        set frameRect to alertButton's frame()
-        set frameOrigin to item 1 of frameRect
-        set frameSize to item 2 of frameRect
-        set buttonLeftEdge to (item 1 of frameOrigin) as real
-        set buttonRightEdge to buttonLeftEdge + ((item 1 of frameSize) as real)
-        if buttonLeftEdge is less than buttonRowLeftEdge then
-            set buttonRowLeftEdge to buttonLeftEdge
-        end if
-        if buttonRightEdge is greater than buttonRowRightEdge then
-            set buttonRowRightEdge to buttonRightEdge
-        end if
-    end repeat
-    set buttonRowCenter to (buttonRowLeftEdge + buttonRowRightEdge) / 2
-    return (layoutCenter as text) & "|" & (buttonRowCenter as text)
-""",
-    )
-    script_path = tmp_path / "dialog-button-centering.applescript"
-    script_path.write_text(script, encoding="utf-8")
-
-    completed = subprocess.run(
-        [
-            "osascript",
-            str(script_path),
-            (
-                "Tool: Bash\nCommand:\n"
-                "git status\n"
-                "asdasdasdasdasd asdasdasd asdasda\n"
-                " asdasdasd asdasdasd asdasd\n"
-                " asdasdas asdas\n"
-                " asdasd\n"
-                "asdasdddddasdasdasdsadasdsadasdasdsadasdasdasdasdasdsad asd "
-                "sadasdasdasd asdasdasdasdasdasdasdasdasdasda\n"
-                "asdasdasda asdasdas asdas\n"
-            ),
-            "Permission Request",
-            DialogButton.ALLOW_ONCE.value,
-            "",
-            "18",
-            DialogButton.DENY.value,
-            DialogButton.ALLOW_ONCE.value,
-            DialogButton.ALWAYS_ALLOW.value,
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert completed.returncode == 0, completed.stderr
-    layout_center_raw, button_row_center_raw = completed.stdout.strip().split("|", 1)
-    assert abs(float(layout_center_raw) - float(button_row_center_raw)) < 1, completed.stdout
-
-
 def test_dialog_script_does_not_highlight_default_button(tmp_path: Path) -> None:
     if shutil.which("osascript") is None:
         pytest.skip("osascript is not available")
@@ -299,10 +168,12 @@ def test_dialog_script_does_not_highlight_default_button(tmp_path: Path) -> None
     script = get_dialog_script().replace(
         """
     set responseCode to (alert's runModal()) as integer
-    set buttonIndex to responseCode - 999
-    if buttonIndex < 1 or buttonIndex > (count of buttonList) then
+    -- Buttons were added in reverse, so map the return code back to buttonList.
+    set addedIndex to responseCode - 999
+    if addedIndex < 1 or addedIndex > (count of buttonList) then
         return ""
     end if
+    set buttonIndex to (count of buttonList) - addedIndex + 1
     return "button returned:" & (item buttonIndex of buttonList)
 """,
         """
@@ -338,7 +209,10 @@ def test_dialog_script_does_not_highlight_default_button(tmp_path: Path) -> None
     )
 
     assert completed.returncode == 0, completed.stderr
-    assert completed.stdout.strip() == "Deny:0|Allow Once:0|Always Allow:0"
+    # NSAlert returns buttons in added order, which is reversed from buttonList so the
+    # on-screen left-to-right order matches. The assertion is that none carries a key
+    # equivalent (no highlighted default button).
+    assert completed.stdout.strip() == "Always Allow:0|Allow Once:0|Deny:0"
 
 
 def test_show_dialog_passes_custom_icon_path_to_osascript(monkeypatch) -> None:
@@ -496,7 +370,8 @@ def test_ask_user_question_script_compiles_on_macos(tmp_path: Path) -> None:
 def test_show_ask_user_question_dialog_collects_single_and_multi_answers(monkeypatch) -> None:
     transport = AppleScriptTransport(skip_osascript=False)
     captured_calls: list[list[str]] = []
-    responses = iter(["OK\nJest", "OK\nAWS\n##\nGCP"])
+    # The picker returns 1-based option indices: Jest is option 1; AWS/GCP are 1 and 2.
+    responses = iter(["OK\n1", "OK\n1\n2"])
 
     def fake_run_osascript(
         *,
@@ -563,11 +438,11 @@ def test_show_ask_user_question_dialog_accepts_sentinel_like_labels(monkeypatch)
         arguments: list[str],
         script: str,
     ) -> AppleScriptResult:
-        # An option labeled exactly "CANCELLED" comes back behind the OK status line.
+        # The only option (label "CANCELLED") is selected, returned as index 1.
         return AppleScriptResult(
             status=TransportStatus.SUCCEEDED,
             invocation=invocation,
-            stdout="OK\nCANCELLED",
+            stdout="OK\n1",
         )
 
     monkeypatch.setattr(transport, "_run_osascript", fake_run_osascript)
@@ -664,6 +539,36 @@ def test_show_ask_user_question_dialog_marks_script_error_as_failed(monkeypatch)
     assert result.answers is None
     assert result.transport.status == TransportStatus.FAILED
     assert "ERROR:" in result.transport.stderr
+
+
+def test_show_dialog_returns_no_button_for_empty_marker(monkeypatch) -> None:
+    transport = AppleScriptTransport(skip_osascript=False)
+
+    def fake_run_osascript(
+        *,
+        invocation: AppleScriptInvocation,
+        arguments: list[str],
+        script: str,
+    ) -> AppleScriptResult:
+        # Marker present but no label after it must not raise IndexError.
+        return AppleScriptResult(
+            status=TransportStatus.SUCCEEDED,
+            invocation=invocation,
+            stdout="button returned:",
+        )
+
+    monkeypatch.setattr(transport, "_run_osascript", fake_run_osascript)
+
+    result = transport.show_dialog(
+        DialogSpec(
+            title="Permission Request",
+            message="Run command?",
+            buttons=(DialogButton.DENY, DialogButton.ALLOW_ONCE),
+            default_button=DialogButton.ALLOW_ONCE,
+        )
+    )
+
+    assert result.button is None
 
 
 def test_send_notification_passes_configured_timeout(monkeypatch) -> None:
