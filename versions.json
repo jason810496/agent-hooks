@@ -14,7 +14,10 @@
     "title": "0.1.0rc2",
     "aliases": [
       "rc"
-    ]
+    ],
+    "properties": {
+      "hidden": true
+    }
   },
   {
     "version": "0.1.0rc1",
