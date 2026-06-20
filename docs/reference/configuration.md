@@ -52,6 +52,28 @@ printf '%s\n' '{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_i
   | AGENT_HOOK_DIALOG_FONT_SIZE=18 agent-hooks callback --provider claude-code
 ```
 
+## Notification Timeout
+
+- `AGENT_HOOK_NOTIFICATION_TIMEOUT`
+
+Seconds to wait for a notification `osascript` call before giving up. Notifications
+are posted for `Stop`, `StopFailure`, and `Notification` events. Leave it unset to
+use the default `10` seconds.
+
+This is a safeguard: Claude Code waits for `Stop` hooks to finish, so a notification
+that stalls on a given macOS setup can make the response look blocked. When the
+timeout fires, Agent Hooks abandons the notification, logs the failure, and still
+emits the normal hook response so the agent can continue.
+
+Set it to `0` to disable the timeout and wait indefinitely. The timeout applies only
+to notifications. Interactive permission and AskUserQuestion dialogs block on purpose
+while waiting for your answer and are never time-limited.
+
+!!! info "Response looks blocked after a turn?"
+    See [Troubleshooting](troubleshooting.md#claude-code-response-seems-blocked-after-a-turn-stop-hook)
+    for the macOS-config causes and remedies, including allowing notifications through
+    Focus mode.
+
 ## Project Root And Paths
 
 - `AGENT_HOOK_PROJECT_ROOT`
