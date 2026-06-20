@@ -55,7 +55,7 @@ jobs:
               --require-project-match
 
             if [[ "${VERSION}" == *rc* ]]; then
-              uv run --group docs mike deploy --push --update-aliases --title "${VERSION}" "${VERSION}" rc
+              uv run --group docs mike deploy --push --update-aliases --prop-set hidden=true --title "${VERSION}" "${VERSION}" rc
 
               if ! uv run --group docs mike list -j | grep -q '"latest"'; then
                 uv run --group docs mike set-default --push rc
