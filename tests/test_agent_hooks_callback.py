@@ -1400,6 +1400,50 @@ class TestAgentHook:
 
         assert result.response.as_payload() == {"suppressOutput": False}
 
+    def test_permission_decorator_supports_unhashable_callable_dependency(self) -> None:
+        hook = AgentHook()
+
+        class Builder:
+            __hash__ = None  # unhashable, like a non-frozen dataclass with __call__
+
+            def __call__(self) -> str:
+                return "ctx"
+
+        builder_dependency = Depends(Builder())
+
+        @hook.permission()
+        def permission_callback(
+            context: str = builder_dependency,
+        ) -> HookResponse:
+            assert context == "ctx"
+            return HookResponse(suppress_output=False)
+
+        input_data = read_hook_input(
+            StringIO('{"hook_event_name":"PermissionRequest","tool_name":"Bash"}')
+        )
+
+        result = hook.dispatch(input_data, FakeTransport())
+
+        assert result.response.as_payload() == {"suppressOutput": False}
+
+    def test_handler_with_unresolvable_annotation_registers(self) -> None:
+        hook = AgentHook()
+
+        @hook.permission()
+        def permission_callback(
+            value: UndefinedForwardRef = "fallback",  # noqa: F821
+        ) -> HookResponse:
+            assert value == "fallback"
+            return HookResponse(suppress_output=False)
+
+        input_data = read_hook_input(
+            StringIO('{"hook_event_name":"PermissionRequest","tool_name":"Bash"}')
+        )
+
+        result = hook.dispatch(input_data, FakeTransport())
+
+        assert result.response.as_payload() == {"suppressOutput": False}
+
     def test_yield_dependency_receives_handler_exception(self) -> None:
         hook = AgentHook()
         events: list[str] = []

@@ -93,7 +93,7 @@ def call_route_handler(
     :type transport: DisplayTransport
     :return: Route handler response, or ``None``.
     """
-    dependency_cache: dict[DependencyCallable, object] = {}
+    dependency_cache: dict[int, object] = {}
     with ExitStack() as exit_stack:
         keyword_arguments = {
             argument.parameter_name: _resolve_injected_value(
@@ -114,7 +114,7 @@ def _resolve_injected_value(
     request: CallbackRequest,
     hook_event: HookEvent,
     transport: DisplayTransport,
-    dependency_cache: dict[DependencyCallable, object],
+    dependency_cache: dict[int, object],
     exit_stack: ExitStack,
 ) -> object:
     """Resolve one injected argument value for a route handler.
@@ -128,7 +128,7 @@ def _resolve_injected_value(
     :param transport: Display transport used by the route handler.
     :type transport: DisplayTransport
     :param dependency_cache: Per-dispatch dependency value cache.
-    :type dependency_cache: dict[DependencyCallable, object]
+    :type dependency_cache: dict[int, object]
     :param exit_stack: Per-dispatch lifecycle stack for dependency cleanup.
     :type exit_stack: ExitStack
     :return: Injected value for the handler parameter.
@@ -189,17 +189,23 @@ def _resolve_callable_annotations(
     target: object = unwrap(handler)
     if isinstance(target, partial):
         target = target.func
-    if isinstance(target, type):
-        if target.__init__ is object.__init__:
-            # A class without its own ``__init__`` exposes ``object``'s slot wrapper,
-            # which ``get_type_hints`` cannot inspect on some Python versions.
-            return {}
-        return get_type_hints(target.__init__)
-    if not hasattr(target, "__code__"):
-        # Callable instances expose parameters through their class ``__call__`` rather
-        # than ``__code__`` (which functions, methods, and lambdas carry directly).
-        return get_type_hints(type(target).__call__)
-    return get_type_hints(target)
+    try:
+        if isinstance(target, type):
+            if target.__init__ is object.__init__:
+                # A class without its own ``__init__`` exposes ``object``'s slot wrapper,
+                # which ``get_type_hints`` cannot inspect on some Python versions.
+                return {}
+            return get_type_hints(target.__init__)
+        if not hasattr(target, "__code__"):
+            # Callable instances expose parameters through their class ``__call__`` rather
+            # than ``__code__`` (which functions, methods, and lambdas carry directly).
+            return get_type_hints(type(target).__call__)
+        return get_type_hints(target)
+    except Exception:
+        # ``get_type_hints`` raises on unresolvable forward references or invalid
+        # annotations. Degrade to no resolved hints rather than crashing registration;
+        # such parameters then need a default value or an explicit Depends(...).
+        return {}
 
 
 def _build_callable_injected_arguments(
@@ -375,7 +381,7 @@ def _resolve_dependency(
     request: CallbackRequest,
     hook_event: HookEvent,
     transport: DisplayTransport,
-    dependency_cache: dict[DependencyCallable, object],
+    dependency_cache: dict[int, object],
     exit_stack: ExitStack,
 ) -> object:
     """Resolve one dependency-backed injected value.
@@ -389,7 +395,7 @@ def _resolve_dependency(
     :param transport: Display transport used by the route handler.
     :type transport: DisplayTransport
     :param dependency_cache: Per-dispatch dependency value cache.
-    :type dependency_cache: dict[DependencyCallable, object]
+    :type dependency_cache: dict[int, object]
     :param exit_stack: Per-dispatch lifecycle stack for dependency cleanup.
     :type exit_stack: ExitStack
     :return: Dependency return value.
@@ -402,7 +408,11 @@ def _resolve_dependency(
             "dependency definition."
         )
 
-    cached_value = dependency_cache.get(dependency.dependency, _MISSING_DEPENDENCY_VALUE)
+    # Key the per-dispatch cache by object identity, not the callable itself, so an
+    # unhashable callable instance (e.g. a non-frozen dataclass with __call__) can still
+    # be used as a dependency. Identities are stable for the dispatch's lifetime.
+    dependency_key = id(dependency.dependency)
+    cached_value = dependency_cache.get(dependency_key, _MISSING_DEPENDENCY_VALUE)
     if cached_value is not _MISSING_DEPENDENCY_VALUE:
         return cached_value
 
@@ -422,7 +432,7 @@ def _resolve_dependency(
         dependency.dependency(**keyword_arguments),
         exit_stack,
     )
-    dependency_cache[dependency.dependency] = result
+    dependency_cache[dependency_key] = result
     return result
 
 
