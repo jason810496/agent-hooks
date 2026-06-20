@@ -6,6 +6,7 @@ from collections.abc import Generator
 from contextlib import ExitStack
 from dataclasses import fields
 from inspect import Parameter, isgenerator, signature
+from types import TracebackType
 from typing import get_type_hints
 
 from agent_hooks.models.events import HookEvent
@@ -491,7 +492,7 @@ class _GeneratorDependencyScope:
         self,
         exc_type: type[BaseException] | None,
         exc_value: BaseException | None,
-        traceback: object,
+        traceback: TracebackType | None,
     ) -> bool:
         """Finalize the generator, propagating any handler exception into it.
 
@@ -500,7 +501,7 @@ class _GeneratorDependencyScope:
         :param exc_value: Exception instance raised by the handler, if any.
         :type exc_value: BaseException | None
         :param traceback: Active traceback, if any.
-        :type traceback: object
+        :type traceback: TracebackType | None
         :return: Whether the handler exception was suppressed by the dependency.
         :raises ValueError: If the generator yields more than one value.
         """
@@ -514,6 +515,10 @@ class _GeneratorDependencyScope:
 
         if exc_value is None:
             exc_value = exc_type()
+        if traceback is not None and exc_value.__traceback__ is None:
+            # Preserve the original traceback while using the non-deprecated single-arg
+            # ``throw`` (the three-argument form is deprecated since Python 3.12).
+            exc_value = exc_value.with_traceback(traceback)
         try:
             self._generator.throw(exc_value)
         except StopIteration as stop:
@@ -531,6 +536,7 @@ class _GeneratorDependencyScope:
             if raised is not exc_value:
                 raise
             return False
+        self._generator.close()
         raise ValueError(self._single_yield_message())
 
     def _single_yield_message(self) -> str:

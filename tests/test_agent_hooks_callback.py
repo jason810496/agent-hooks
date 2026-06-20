@@ -1427,6 +1427,34 @@ class TestAgentHook:
         # The handler exception must be thrown into the generator so its except runs.
         assert events == ["rolled-back"]
 
+    def test_yield_dependency_closed_when_it_yields_again_after_error(self) -> None:
+        hook = AgentHook()
+        events: list[str] = []
+
+        def open_connection() -> object:
+            try:
+                yield "db-session"
+            except RuntimeError:
+                events.append("caught")
+                yield "second"
+            finally:
+                events.append("closed")
+
+        @hook.permission()
+        def permission_callback(
+            connection: str = Depends(open_connection),
+        ) -> HookResponse:
+            raise RuntimeError("boom")
+
+        input_data = read_hook_input(StringIO('{"hook_event_name":"PermissionRequest"}'))
+
+        with pytest.raises(ValueError, match="must yield exactly one value"):
+            hook.dispatch(input_data, FakeTransport())
+
+        # The misbehaving generator must be closed (running its finally) before the
+        # single-yield error is raised, rather than leaking until garbage collection.
+        assert events == ["caught", "closed"]
+
     def test_permission_decorator_supports_yield_dependency_cleanup(self) -> None:
         hook = AgentHook()
         events: list[str] = []

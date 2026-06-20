@@ -496,7 +496,7 @@ def test_ask_user_question_script_compiles_on_macos(tmp_path: Path) -> None:
 def test_show_ask_user_question_dialog_collects_single_and_multi_answers(monkeypatch) -> None:
     transport = AppleScriptTransport(skip_osascript=False)
     captured_calls: list[list[str]] = []
-    responses = iter(["Jest", "AWS\n##\nGCP"])
+    responses = iter(["OK\nJest", "OK\nAWS\n##\nGCP"])
 
     def fake_run_osascript(
         *,
@@ -552,6 +552,43 @@ def test_show_ask_user_question_dialog_collects_single_and_multi_answers(monkeyp
     assert captured_calls[0][4:] == ["Jest", "Vitest"]
     assert captured_calls[1][:4] == ["Deploy", "Pick deployments", "1", "AWS"]
     assert captured_calls[1][4:] == ["AWS", "GCP"]
+
+
+def test_show_ask_user_question_dialog_accepts_sentinel_like_labels(monkeypatch) -> None:
+    transport = AppleScriptTransport(skip_osascript=False)
+
+    def fake_run_osascript(
+        *,
+        invocation: AppleScriptInvocation,
+        arguments: list[str],
+        script: str,
+    ) -> AppleScriptResult:
+        # An option labeled exactly "CANCELLED" comes back behind the OK status line.
+        return AppleScriptResult(
+            status=TransportStatus.SUCCEEDED,
+            invocation=invocation,
+            stdout="OK\nCANCELLED",
+        )
+
+    monkeypatch.setattr(transport, "_run_osascript", fake_run_osascript)
+
+    result = transport.show_ask_user_question_dialog(
+        AskUserQuestionDialogSpec(
+            title="Claude Code",
+            questions=(
+                AskUserQuestionEntry(
+                    question="Pick one",
+                    header="Pick",
+                    multi_select=False,
+                    options=(AskUserQuestionOption(label="CANCELLED"),),
+                ),
+            ),
+        )
+    )
+
+    # A selected label that equals the cancel sentinel must be injected, not treated
+    # as a cancellation.
+    assert result.answers == {"Pick one": "CANCELLED"}
 
 
 def test_show_ask_user_question_dialog_reports_cancellation(monkeypatch) -> None:

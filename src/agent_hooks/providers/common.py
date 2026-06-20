@@ -175,7 +175,7 @@ def _truncate_preview_line(line: str, limit: int) -> str:
     if len(line) <= limit:
         return line
 
-    return f"{line[: limit - 1].rstrip()}…"
+    return f"{line[: max(0, limit - 1)].rstrip()}…"
 
 
 def _resolve_preview_limits(

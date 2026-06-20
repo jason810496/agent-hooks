@@ -45,5 +45,7 @@ on run argv
         end if
         set output to output & (item chosenIndex of chosen)
     end repeat
-    return output
+    -- Prefix selections with an "OK" status line so a selected option whose label is
+    -- literally "CANCELLED" or "ERROR:..." cannot be mistaken for a control sentinel.
+    return "OK" & linefeed & output
 end run

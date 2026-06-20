@@ -27,6 +27,8 @@ DIALOG_SCRIPT_PATH: Final = ASSETS_PATH / "dialog.applescript"
 ASK_USER_QUESTION_SCRIPT_PATH: Final = ASSETS_PATH / "ask_user_question.applescript"
 OSASCRIPT_LOGO_PATH: Final = ASSETS_PATH / "osascript-logo.png"
 ASK_USER_QUESTION_SEPARATOR: Final = "\n##\n"
+ASK_USER_QUESTION_OK_MARKER: Final = "OK"
+ASK_USER_QUESTION_ERROR_PREFIX: Final = "ERROR:"
 ASK_USER_QUESTION_CANCELLED_MARKER: Final = "CANCELLED"
 
 
@@ -230,7 +232,17 @@ class AppleScriptTransport:
         # correct even if called with an unstripped result (no trailing newline leaks
         # into the final selection).
         stdout = transport.stdout.strip()
-        if stdout.startswith("ERROR:"):
+
+        # Selections are returned behind an "OK" status line so an option label that is
+        # literally "CANCELLED" or "ERROR:..." can never be read as a control sentinel.
+        if stdout == ASK_USER_QUESTION_OK_MARKER or stdout.startswith(
+            f"{ASK_USER_QUESTION_OK_MARKER}\n"
+        ):
+            payload = stdout.partition("\n")[2]
+            selections = [item for item in payload.split(ASK_USER_QUESTION_SEPARATOR) if item]
+            return transport, selections
+
+        if stdout.startswith(ASK_USER_QUESTION_ERROR_PREFIX):
             # The AppleScript caught an internal error and exited zero. Surface it as a
             # transport failure so callers fall back instead of treating it as a cancel.
             failed = AppleScriptResult(
@@ -241,11 +253,9 @@ class AppleScriptTransport:
                 stderr=stdout,
             )
             return failed, None
-        if stdout == ASK_USER_QUESTION_CANCELLED_MARKER:
-            return transport, None
 
-        selections = [item for item in stdout.split(ASK_USER_QUESTION_SEPARATOR) if item]
-        return transport, selections
+        # Anything else (including the bare "CANCELLED" sentinel) is a declined dialog.
+        return transport, None
 
     def _build_ask_user_question_prompt(self, entry: AskUserQuestionEntry) -> str:
         """Return the prompt text shown above the picker for one question.
