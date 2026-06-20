@@ -226,7 +226,10 @@ class AppleScriptTransport:
         if transport.status != TransportStatus.SUCCEEDED:
             return transport, None
 
-        stdout = transport.stdout
+        # ``_run_osascript`` already strips stdout; strip again so this parser stays
+        # correct even if called with an unstripped result (no trailing newline leaks
+        # into the final selection).
+        stdout = transport.stdout.strip()
         if stdout.startswith("ERROR:"):
             # The AppleScript caught an internal error and exited zero. Surface it as a
             # transport failure so callers fall back instead of treating it as a cancel.

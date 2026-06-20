@@ -184,6 +184,10 @@ def _resolve_callable_annotations(
     :return: Mapping of parameter name to resolved type hint.
     """
     if isinstance(handler, type):
+        if handler.__init__ is object.__init__:
+            # A class without its own ``__init__`` exposes ``object``'s slot wrapper,
+            # which ``get_type_hints`` cannot inspect on some Python versions.
+            return {}
         return get_type_hints(handler.__init__)
     if not hasattr(handler, "__code__"):
         # Callable instances expose parameters through their class ``__call__`` rather
@@ -434,10 +438,8 @@ def _coerce_dependency_result(
     if _is_context_manager(result):
         return exit_stack.enter_context(result)
     if isgenerator(result):
-        return _enter_generator_dependency(
-            result,
-            dependency_name=_handler_name(dependency),
-            exit_stack=exit_stack,
+        return exit_stack.enter_context(
+            _GeneratorDependencyScope(result, _handler_name(dependency))
         )
     return result
 
@@ -454,55 +456,89 @@ def _is_context_manager(value: object) -> bool:
     return callable(enter) and callable(exit_)
 
 
-def _enter_generator_dependency(
-    generator: Generator[object, None, None],
-    *,
-    dependency_name: str,
-    exit_stack: ExitStack,
-) -> object:
-    """Enter one generator dependency and register its teardown callback.
+class _GeneratorDependencyScope:
+    """Drive a one-shot generator dependency as a context manager.
 
-    :param generator: Generator returned by a dependency callable.
-    :type generator: Generator[object, None, None]
-    :param dependency_name: Readable dependency name for error messages.
-    :type dependency_name: str
-    :param exit_stack: Per-dispatch lifecycle stack for dependency cleanup.
-    :type exit_stack: ExitStack
-    :return: Yielded dependency value with teardown managed by generator completion.
-    :raises ValueError: If the generator yields zero or more than one value.
+    Teardown mirrors :func:`contextlib.contextmanager` semantics so an exception raised
+    by the route handler is thrown back into the dependency generator. This lets a
+    dependency run ``except`` / ``finally`` cleanup correctly (for example rolling back
+    on error), while still enforcing the single-yield contract.
     """
-    try:
-        value = next(generator)
-    except StopIteration as error:
-        raise ValueError(f"Dependency '{dependency_name}' must yield exactly one value.") from error
 
-    exit_stack.callback(
-        _close_generator_dependency,
-        generator,
-        dependency_name=dependency_name,
-    )
-    return value
+    def __init__(self, generator: Generator[object, None, None], dependency_name: str) -> None:
+        """Store the generator and a readable dependency name.
 
+        :param generator: Generator returned by a dependency callable.
+        :type generator: Generator[object, None, None]
+        :param dependency_name: Readable dependency name for error messages.
+        :type dependency_name: str
+        """
+        self._generator = generator
+        self._dependency_name = dependency_name
 
-def _close_generator_dependency(
-    generator: Generator[object, None, None],
-    *,
-    dependency_name: str,
-) -> None:
-    """Complete one generator dependency during dispatch teardown.
+    def __enter__(self) -> object:
+        """Advance the generator to its single yield and return the yielded value.
 
-    :param generator: Generator returned by a dependency callable.
-    :type generator: Generator[object, None, None]
-    :param dependency_name: Readable dependency name for error messages.
-    :type dependency_name: str
-    :raises ValueError: If the generator yields more than one value.
-    """
-    try:
-        next(generator)
-    except StopIteration:
-        return
-    generator.close()
-    raise ValueError(f"Dependency '{dependency_name}' must yield exactly one value.")
+        :return: Value yielded by the dependency generator.
+        :raises ValueError: If the generator yields no value.
+        """
+        try:
+            return next(self._generator)
+        except StopIteration as error:
+            raise ValueError(self._single_yield_message()) from error
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: object,
+    ) -> bool:
+        """Finalize the generator, propagating any handler exception into it.
+
+        :param exc_type: Exception type raised by the handler, if any.
+        :type exc_type: type[BaseException] | None
+        :param exc_value: Exception instance raised by the handler, if any.
+        :type exc_value: BaseException | None
+        :param traceback: Active traceback, if any.
+        :type traceback: object
+        :return: Whether the handler exception was suppressed by the dependency.
+        :raises ValueError: If the generator yields more than one value.
+        """
+        if exc_type is None:
+            try:
+                next(self._generator)
+            except StopIteration:
+                return False
+            self._generator.close()
+            raise ValueError(self._single_yield_message())
+
+        if exc_value is None:
+            exc_value = exc_type()
+        try:
+            self._generator.throw(exc_value)
+        except StopIteration as stop:
+            return stop is not exc_value
+        except RuntimeError as runtime_error:
+            if runtime_error is exc_value:
+                return False
+            if (
+                isinstance(exc_value, StopIteration | StopAsyncIteration)
+                and runtime_error.__cause__ is exc_value
+            ):
+                return False
+            raise
+        except BaseException as raised:
+            if raised is not exc_value:
+                raise
+            return False
+        raise ValueError(self._single_yield_message())
+
+    def _single_yield_message(self) -> str:
+        """Return the single-yield contract violation message.
+
+        :return: User-facing validation message.
+        """
+        return f"Dependency '{self._dependency_name}' must yield exactly one value."
 
 
 def _unsupported_parameter_message(

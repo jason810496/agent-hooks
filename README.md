@@ -53,7 +53,7 @@ def permission_handler(hook_event: PermissionRequestEvent):
 ```
 
 ```bash
-agent-hooks run my_hooks:app --provider codex
+agent-hooks run my_hooks.py --provider codex
 ```
 
 A single typed handler can serve Claude Code's `PermissionRequest` and Codex's `PreToolUse` without requiring provider-specific schema glue.

@@ -556,8 +556,41 @@ class TestAskUserQuestionFlow:
         result = process_permission_request(payload, transport)
 
         # A transport failure must not be treated as a user cancellation/deny; it should
-        # fall back to the standard permission dialog.
+        # fall back to the standard permission dialog while preserving the picker error
+        # so it still surfaces in the application log.
         assert transport.ask_user_question_calls == 1
+        assert transport.dialog_calls == 1
+        assert isinstance(result.display, DialogSpec)
+        assert result.error == "ERROR:-1:boom"
+
+    def test_handle_ask_user_question_falls_back_when_transport_lacks_picker(self) -> None:
+        class PickerlessTransport:
+            def __init__(self) -> None:
+                self.dialog_calls = 0
+
+            def send_notification(self, notification: object) -> AppleScriptResult:
+                return AppleScriptResult(
+                    status=TransportStatus.SUCCEEDED,
+                    invocation=AppleScriptInvocation.NOTIFICATION,
+                )
+
+            def show_dialog(self, dialog: object) -> DialogResult:
+                self.dialog_calls += 1
+                return DialogResult(
+                    button=DialogButton.ALLOW_ONCE,
+                    transport=AppleScriptResult(
+                        status=TransportStatus.SUCCEEDED,
+                        invocation=AppleScriptInvocation.DIALOG,
+                        stdout="button returned:Allow Once",
+                    ),
+                )
+
+        payload = self._payload()
+        transport = PickerlessTransport()
+
+        result = process_permission_request(payload, transport)
+
+        # A custom transport without the picker method must fall back, not crash.
         assert transport.dialog_calls == 1
         assert isinstance(result.display, DialogSpec)
 
@@ -1343,6 +1376,56 @@ class TestAgentHook:
         result = hook.dispatch(input_data, FakeTransport())
 
         assert result.response.as_payload() == {"suppressOutput": False}
+
+    def test_permission_decorator_supports_class_dependency_without_init(self) -> None:
+        hook = AgentHook()
+
+        class Marker:
+            pass
+
+        marker_dependency = Depends(Marker)
+
+        @hook.permission()
+        def permission_callback(
+            marker: object = marker_dependency,
+        ) -> HookResponse:
+            assert isinstance(marker, Marker)
+            return HookResponse(suppress_output=False)
+
+        input_data = read_hook_input(
+            StringIO('{"hook_event_name":"PermissionRequest","tool_name":"Bash"}')
+        )
+
+        result = hook.dispatch(input_data, FakeTransport())
+
+        assert result.response.as_payload() == {"suppressOutput": False}
+
+    def test_yield_dependency_receives_handler_exception(self) -> None:
+        hook = AgentHook()
+        events: list[str] = []
+
+        def open_connection() -> object:
+            try:
+                yield "db-session"
+            except RuntimeError:
+                events.append("rolled-back")
+                raise
+            else:
+                events.append("committed")
+
+        @hook.permission()
+        def permission_callback(
+            connection: str = Depends(open_connection),
+        ) -> HookResponse:
+            raise RuntimeError("boom")
+
+        input_data = read_hook_input(StringIO('{"hook_event_name":"PermissionRequest"}'))
+
+        with pytest.raises(RuntimeError, match="boom"):
+            hook.dispatch(input_data, FakeTransport())
+
+        # The handler exception must be thrown into the generator so its except runs.
+        assert events == ["rolled-back"]
 
     def test_permission_decorator_supports_yield_dependency_cleanup(self) -> None:
         hook = AgentHook()

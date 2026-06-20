@@ -45,7 +45,7 @@ Agent Hooks gives Claude Code and Codex one local callback layer: a macOS-ready 
     ```
 
     ```bash
-    agent-hooks run my_hooks:app --provider codex
+    agent-hooks run my_hooks.py --provider codex
     ```
 
     <p class="ah-caption">One typed handler can serve Claude Code <code>PermissionRequest</code> and Codex <code>PreToolUse</code> without writing provider-specific schema glue.</p>

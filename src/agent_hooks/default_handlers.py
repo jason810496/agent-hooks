@@ -108,7 +108,7 @@ class DefaultHookHandler:
         """
         normalized_payload = cast(HookPayload, payload)
         if is_ask_user_question_payload(normalized_payload):
-            ask_result = self.handle_ask_user_question(
+            ask_result, current_error = self.handle_ask_user_question(
                 normalized_payload,
                 transport,
                 current_error=current_error,
@@ -136,7 +136,7 @@ class DefaultHookHandler:
         transport: DisplayTransport,
         *,
         current_error: str | None = None,
-    ) -> HookProcessingResult | None:
+    ) -> tuple[HookProcessingResult | None, str | None]:
         """Show the AskUserQuestion picker and inject collected answers.
 
         :param payload: Normalized permission payload.
@@ -145,27 +145,39 @@ class DefaultHookHandler:
         :type transport: DisplayTransport
         :param current_error: Existing processing error, if any.
         :type current_error: str | None
-        :return: Processing result, or ``None`` when the transport cannot present the
-            picker so the caller should fall back to the standard permission dialog.
+        :return: A tuple of the processing result and the error to carry forward. The
+            result is ``None`` when the caller should fall back to the standard
+            permission dialog; the carried error preserves a picker transport failure
+            so it still surfaces in logs after the fallback.
         """
+        if not hasattr(transport, "show_ask_user_question_dialog"):
+            # Custom transports from older versions may not implement the picker; fall
+            # back to the standard permission dialog instead of crashing.
+            return None, current_error
+
         dialog = build_ask_user_question_dialog(payload)
         dialog_result = transport.show_ask_user_question_dialog(dialog)
+        if dialog_result.transport.status == TransportStatus.SKIPPED:
+            # Unsupported platform / disabled: fall back without recording an error.
+            return None, current_error
         if dialog_result.transport.status != TransportStatus.SUCCEEDED:
-            # Skipped (unsupported platform) or a transport/script failure: fall back to
-            # the standard permission dialog instead of denying. A genuine cancellation
-            # returns a succeeded transport and is handled below.
-            return None
+            # Transport/script failure: fall back to the standard permission dialog
+            # instead of denying, but keep the picker error so it is still logged.
+            return None, self.transport_error(dialog_result.transport, current_error)
 
         if dialog_result.answers is None:
             response = build_ask_user_question_cancel_response(payload)
         else:
             response = build_ask_user_question_response(payload, dialog_result.answers)
 
-        return HookProcessingResult(
-            display=dialog,
-            transport_result=dialog_result.transport,
-            response=response,
-            error=self.transport_error(dialog_result.transport, current_error),
+        return (
+            HookProcessingResult(
+                display=dialog,
+                transport_result=dialog_result.transport,
+                response=response,
+                error=self.transport_error(dialog_result.transport, current_error),
+            ),
+            current_error,
         )
 
     def handle_notification_event(

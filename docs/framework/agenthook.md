@@ -104,7 +104,7 @@ run_callback(app)
 Through the CLI:
 
 ```bash
-agent-hooks run my_hooks:app --app-dir . --provider codex
+agent-hooks run my_hooks.py --app-dir . --provider codex
 ```
 
 ## Route Decorators
