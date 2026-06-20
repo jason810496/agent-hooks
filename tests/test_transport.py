@@ -6,9 +6,14 @@ from pathlib import Path
 
 import pytest
 
-from agent_hooks.config import DEFAULT_DIALOG_FONT_SIZE
-from agent_hooks.enums import AppleScriptInvocation, DialogButton, TransportStatus
-from agent_hooks.models.response import AppleScriptResult, DialogSpec
+from agent_hooks.config import DEFAULT_DIALOG_FONT_SIZE, DEFAULT_NOTIFICATION_TIMEOUT_SECONDS
+from agent_hooks.enums import (
+    AppleScriptInvocation,
+    DialogButton,
+    NotificationSound,
+    TransportStatus,
+)
+from agent_hooks.models.response import AppleScriptResult, DialogSpec, NotificationSpec
 from agent_hooks.models.schemas.display import (
     AskUserQuestionDialogSpec,
     AskUserQuestionEntry,
@@ -538,7 +543,12 @@ def test_show_ask_user_question_dialog_collects_single_and_multi_answers(monkeyp
         "Pick a framework": "Jest",
         "Pick deployments": "AWS, GCP",
     }
-    assert captured_calls[0][:4] == ["Testing", "Pick a framework\n\n- Jest: Fast\n- Vitest: Modern", "0", "Jest"]
+    assert captured_calls[0][:4] == [
+        "Testing",
+        "Pick a framework\n\n- Jest: Fast\n- Vitest: Modern",
+        "0",
+        "Jest",
+    ]
     assert captured_calls[0][4:] == ["Jest", "Vitest"]
     assert captured_calls[1][:4] == ["Deploy", "Pick deployments", "1", "AWS"]
     assert captured_calls[1][4:] == ["AWS", "GCP"]
@@ -577,6 +587,86 @@ def test_show_ask_user_question_dialog_reports_cancellation(monkeypatch) -> None
 
     assert result.cancelled is True
     assert result.answers is None
+
+
+def test_send_notification_passes_configured_timeout(monkeypatch) -> None:
+    transport = AppleScriptTransport(skip_osascript=False, notification_timeout=3.5)
+    captured: dict[str, object] = {}
+
+    def fake_run_osascript(
+        *,
+        invocation: AppleScriptInvocation,
+        arguments: list[str],
+        script: str,
+        timeout: float | None = None,
+    ) -> AppleScriptResult:
+        captured["invocation"] = invocation
+        captured["timeout"] = timeout
+        return AppleScriptResult(status=TransportStatus.SUCCEEDED, invocation=invocation)
+
+    monkeypatch.setattr(transport, "_run_osascript", fake_run_osascript)
+
+    transport.send_notification(
+        NotificationSpec(title="Claude finished", message="Done", sound=NotificationSound.GLASS)
+    )
+
+    assert captured["invocation"] == AppleScriptInvocation.NOTIFICATION
+    assert captured["timeout"] == 3.5
+
+
+def test_send_notification_defaults_to_packaged_timeout() -> None:
+    transport = AppleScriptTransport(skip_osascript=False)
+
+    assert transport._notification_timeout == DEFAULT_NOTIFICATION_TIMEOUT_SECONDS
+
+
+def test_send_notification_returns_failed_result_when_osascript_times_out(monkeypatch) -> None:
+    transport = AppleScriptTransport(skip_osascript=False, notification_timeout=0.01)
+    monkeypatch.setattr(transport, "_build_skip_result", lambda invocation: None)
+    monkeypatch.setattr(transport, "_binary", "/usr/bin/osascript")
+
+    def fake_run(*args, **kwargs) -> None:
+        raise subprocess.TimeoutExpired(cmd="osascript", timeout=0.01)
+
+    monkeypatch.setattr("agent_hooks.transport.subprocess.run", fake_run)
+
+    result = transport.send_notification(NotificationSpec(title="Claude finished", message="Done"))
+
+    assert result.status == TransportStatus.FAILED
+    assert result.invocation == AppleScriptInvocation.NOTIFICATION
+    assert "timed out" in result.stderr
+
+
+def test_show_dialog_does_not_apply_timeout(monkeypatch) -> None:
+    transport = AppleScriptTransport(skip_osascript=False, notification_timeout=0.01)
+    captured: dict[str, object] = {}
+
+    def fake_run_osascript(
+        *,
+        invocation: AppleScriptInvocation,
+        arguments: list[str],
+        script: str,
+        timeout: float | None = None,
+    ) -> AppleScriptResult:
+        captured["timeout"] = timeout
+        return AppleScriptResult(
+            status=TransportStatus.SUCCEEDED,
+            invocation=invocation,
+            stdout="button returned:Allow Once",
+        )
+
+    monkeypatch.setattr(transport, "_run_osascript", fake_run_osascript)
+
+    transport.show_dialog(
+        DialogSpec(
+            title="Permission Request",
+            message="Run command?",
+            buttons=(DialogButton.DENY, DialogButton.ALLOW_ONCE),
+            default_button=DialogButton.ALLOW_ONCE,
+        )
+    )
+
+    assert captured["timeout"] is None
 
 
 def test_show_dialog_uses_default_font_size_for_invalid_override(monkeypatch) -> None:

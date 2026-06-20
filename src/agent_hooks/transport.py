@@ -9,7 +9,7 @@ from functools import cache
 from pathlib import Path
 from typing import Final, Protocol
 
-from agent_hooks.config import DEFAULT_DIALOG_FONT_SIZE
+from agent_hooks.config import DEFAULT_DIALOG_FONT_SIZE, DEFAULT_NOTIFICATION_TIMEOUT_SECONDS
 from agent_hooks.enums import AppleScriptInvocation, DialogButton, TransportStatus
 from agent_hooks.models.schemas.display import (
     AppleScriptResult,
@@ -112,6 +112,7 @@ class AppleScriptTransport:
         *,
         skip_osascript: bool,
         dialog_font_size: int = DEFAULT_DIALOG_FONT_SIZE,
+        notification_timeout: float = DEFAULT_NOTIFICATION_TIMEOUT_SECONDS,
     ) -> None:
         """Initialize the transport configuration.
 
@@ -119,9 +120,14 @@ class AppleScriptTransport:
         :type skip_osascript: bool
         :param dialog_font_size: Dialog font size in points.
         :type dialog_font_size: int
+        :param notification_timeout: Seconds to wait for a notification ``osascript``
+            call before giving up. A value ``<= 0`` waits indefinitely. Interactive
+            dialogs are never time-limited because they legitimately block on the user.
+        :type notification_timeout: float
         """
         self._skip_osascript = skip_osascript
         self._dialog_font_size = dialog_font_size
+        self._notification_timeout = notification_timeout
         self._binary = shutil.which("osascript")
 
     def send_notification(self, notification: NotificationSpec) -> AppleScriptResult:
@@ -140,6 +146,7 @@ class AppleScriptTransport:
                 notification.sound.value,
             ],
             script=get_notification_script(),
+            timeout=self._notification_timeout,
         )
 
     def show_dialog(self, dialog: DialogSpec) -> DialogResult:
@@ -265,6 +272,7 @@ class AppleScriptTransport:
         invocation: AppleScriptInvocation,
         arguments: list[str],
         script: str,
+        timeout: float | None = None,
     ) -> AppleScriptResult:
         """Execute one AppleScript payload.
 
@@ -274,12 +282,16 @@ class AppleScriptTransport:
         :type arguments: list[str]
         :param script: AppleScript source code.
         :type script: str
+        :param timeout: Seconds to wait before terminating ``osascript``. A value
+            of ``None`` or ``<= 0`` waits indefinitely.
+        :type timeout: float | None
         :return: Transport result.
         """
         skipped = self._build_skip_result(invocation)
         if skipped is not None:
             return skipped
 
+        effective_timeout = timeout if timeout is not None and timeout > 0 else None
         assert self._binary is not None
         try:
             completed = subprocess.run(
@@ -287,6 +299,13 @@ class AppleScriptTransport:
                 capture_output=True,
                 text=True,
                 check=False,
+                timeout=effective_timeout,
+            )
+        except subprocess.TimeoutExpired:
+            return AppleScriptResult(
+                status=TransportStatus.FAILED,
+                invocation=invocation,
+                stderr=f"osascript timed out after {effective_timeout:g}s",
             )
         except OSError as exc:
             return AppleScriptResult(

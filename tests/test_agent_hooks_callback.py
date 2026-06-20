@@ -30,6 +30,7 @@ from agent_hooks.config import (
     DEFAULT_COMMAND_PREVIEW_MAX_TOTAL_CHARS,
     DEFAULT_COMMAND_PREVIEW_MAX_TOTAL_LINES,
     DEFAULT_DIALOG_FONT_SIZE,
+    DEFAULT_NOTIFICATION_TIMEOUT_SECONDS,
     ApplicationLoggingConfig,
     AuditLoggingConfig,
     FileLoggingConfig,
@@ -115,9 +116,7 @@ class FakeTransport:
         self.dialogs.append(dialog)
         return self._dialog_result
 
-    def show_ask_user_question_dialog(
-        self, dialog: object
-    ) -> AskUserQuestionDialogResult:
+    def show_ask_user_question_dialog(self, dialog: object) -> AskUserQuestionDialogResult:
         self.ask_user_question_calls += 1
         self.ask_user_question_dialogs.append(dialog)
         return self._ask_user_question_result
@@ -131,6 +130,7 @@ def build_runtime_config(
     command_preview_max_total_chars: int = DEFAULT_COMMAND_PREVIEW_MAX_TOTAL_CHARS,
     command_preview_max_total_lines: int = DEFAULT_COMMAND_PREVIEW_MAX_TOTAL_LINES,
     command_preview_max_line_chars: int = DEFAULT_COMMAND_PREVIEW_MAX_LINE_CHARS,
+    notification_timeout_seconds: float = DEFAULT_NOTIFICATION_TIMEOUT_SECONDS,
 ) -> RuntimeConfig:
     return RuntimeConfig(
         project_root=tmp_path,
@@ -163,6 +163,7 @@ def build_runtime_config(
         command_preview_max_total_chars=command_preview_max_total_chars,
         command_preview_max_total_lines=command_preview_max_total_lines,
         command_preview_max_line_chars=command_preview_max_line_chars,
+        notification_timeout_seconds=notification_timeout_seconds,
     )
 
 
@@ -449,9 +450,7 @@ class TestAskUserQuestionFlow:
             "Pick a framework": "Jest",
             "Pick deployments": "AWS, GCP",
         }
-        assert decision["updatedInput"]["questions"] == (
-            payload.tool_input.raw["questions"]
-        )
+        assert decision["updatedInput"]["questions"] == (payload.tool_input.raw["questions"])
         assert "updatedInput" not in hook_output
 
     def test_handle_ask_user_question_cancel_returns_deny(self) -> None:
@@ -1584,6 +1583,7 @@ class TestRuntimeConfig:
             "AGENT_HOOK_COMMAND_PREVIEW_MAX_TOTAL_CHARS": "120",
             "AGENT_HOOK_COMMAND_PREVIEW_MAX_TOTAL_LINES": "4",
             "AGENT_HOOK_COMMAND_PREVIEW_MAX_LINE_CHARS": "40",
+            "AGENT_HOOK_NOTIFICATION_TIMEOUT": "5.5",
         }
 
         config = load_runtime_config(env)
@@ -1603,6 +1603,7 @@ class TestRuntimeConfig:
         assert config.command_preview_max_total_chars == 120
         assert config.command_preview_max_total_lines == 4
         assert config.command_preview_max_line_chars == 40
+        assert config.notification_timeout_seconds == 5.5
 
     def test_load_runtime_config_leaves_provider_unset_by_default(self) -> None:
         config = load_runtime_config({})
@@ -1612,6 +1613,21 @@ class TestRuntimeConfig:
         assert config.command_preview_max_total_chars == DEFAULT_COMMAND_PREVIEW_MAX_TOTAL_CHARS
         assert config.command_preview_max_total_lines == DEFAULT_COMMAND_PREVIEW_MAX_TOTAL_LINES
         assert config.command_preview_max_line_chars == DEFAULT_COMMAND_PREVIEW_MAX_LINE_CHARS
+        assert config.notification_timeout_seconds == DEFAULT_NOTIFICATION_TIMEOUT_SECONDS
+
+    def test_load_runtime_config_allows_disabling_notification_timeout(self) -> None:
+        config = load_runtime_config({"AGENT_HOOK_NOTIFICATION_TIMEOUT": "0"})
+
+        assert config.notification_timeout_seconds == 0.0
+        assert config.warnings == ()
+
+    def test_load_runtime_config_ignores_invalid_notification_timeout(self) -> None:
+        config = load_runtime_config({"AGENT_HOOK_NOTIFICATION_TIMEOUT": "-2"})
+
+        assert config.notification_timeout_seconds == DEFAULT_NOTIFICATION_TIMEOUT_SECONDS
+        assert config.warnings == (
+            "Negative number value for AGENT_HOOK_NOTIFICATION_TIMEOUT: '-2'. Using fallback.",
+        )
 
     def test_load_runtime_config_ignores_invalid_dialog_font_size(self) -> None:
         config = load_runtime_config({"AGENT_HOOK_DIALOG_FONT_SIZE": "0"})
@@ -1753,9 +1769,11 @@ class TestRunCallback:
                 *,
                 skip_osascript: bool,
                 dialog_font_size: int = DEFAULT_DIALOG_FONT_SIZE,
+                notification_timeout: float = DEFAULT_NOTIFICATION_TIMEOUT_SECONDS,
             ) -> None:
                 captured_init["skip_osascript"] = skip_osascript
                 captured_init["dialog_font_size"] = dialog_font_size
+                captured_init["notification_timeout"] = notification_timeout
 
             def send_notification(self, notification: object) -> AppleScriptResult:
                 return AppleScriptResult(
@@ -1782,7 +1800,11 @@ class TestRunCallback:
             """
         )
         stdout = StringIO()
-        runtime_config = build_runtime_config(tmp_path, dialog_font_size=21)
+        runtime_config = build_runtime_config(
+            tmp_path,
+            dialog_font_size=21,
+            notification_timeout_seconds=7.5,
+        )
         monkeypatch.setattr(runner_module, "AppleScriptTransport", FakeAppleScriptTransport)
 
         exit_code = run_callback(
@@ -1796,6 +1818,7 @@ class TestRunCallback:
         assert captured_init == {
             "skip_osascript": True,
             "dialog_font_size": 21,
+            "notification_timeout": 7.5,
         }
 
     def test_run_callback_applies_configured_command_preview_limits(

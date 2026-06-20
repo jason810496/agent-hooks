@@ -23,6 +23,7 @@ DEFAULT_DIALOG_FONT_SIZE = 13
 DEFAULT_COMMAND_PREVIEW_MAX_TOTAL_CHARS = 900
 DEFAULT_COMMAND_PREVIEW_MAX_TOTAL_LINES = 10
 DEFAULT_COMMAND_PREVIEW_MAX_LINE_CHARS = 100
+DEFAULT_NOTIFICATION_TIMEOUT_SECONDS = 10.0
 
 APPLICATION_LOG_FORMAT_ENV_VAR = "AGENT_HOOK_APP_LOG_FORMAT"
 APPLICATION_LOG_LEVEL_ENV_VAR = "AGENT_HOOK_APP_LOG_LEVEL"
@@ -33,6 +34,7 @@ COMMAND_PREVIEW_MAX_TOTAL_CHARS_ENV_VAR = "AGENT_HOOK_COMMAND_PREVIEW_MAX_TOTAL_
 COMMAND_PREVIEW_MAX_TOTAL_LINES_ENV_VAR = "AGENT_HOOK_COMMAND_PREVIEW_MAX_TOTAL_LINES"
 COMMAND_PREVIEW_MAX_LINE_CHARS_ENV_VAR = "AGENT_HOOK_COMMAND_PREVIEW_MAX_LINE_CHARS"
 DIALOG_FONT_SIZE_ENV_VAR = "AGENT_HOOK_DIALOG_FONT_SIZE"
+NOTIFICATION_TIMEOUT_ENV_VAR = "AGENT_HOOK_NOTIFICATION_TIMEOUT"
 PROVIDER_ENV_VAR = "AGENT_HOOK_PROVIDER"
 DISABLE_OSASCRIPT_ENV_VARS = (
     "AGENT_HOOK_DISABLE_OSASCRIPT",
@@ -101,6 +103,7 @@ class RuntimeConfig:
     command_preview_max_total_chars: int = DEFAULT_COMMAND_PREVIEW_MAX_TOTAL_CHARS
     command_preview_max_total_lines: int = DEFAULT_COMMAND_PREVIEW_MAX_TOTAL_LINES
     command_preview_max_line_chars: int = DEFAULT_COMMAND_PREVIEW_MAX_LINE_CHARS
+    notification_timeout_seconds: float = DEFAULT_NOTIFICATION_TIMEOUT_SECONDS
     warnings: tuple[str, ...] = ()
 
     @property
@@ -236,6 +239,12 @@ def _build_runtime_config(env: Mapping[str, str]) -> RuntimeConfig:
         default=DEFAULT_COMMAND_PREVIEW_MAX_LINE_CHARS,
         warnings=warnings,
     )
+    notification_timeout_seconds = read_timeout_env(
+        environment,
+        NOTIFICATION_TIMEOUT_ENV_VAR,
+        default=DEFAULT_NOTIFICATION_TIMEOUT_SECONDS,
+        warnings=warnings,
+    )
 
     return RuntimeConfig(
         project_root=project_root,
@@ -256,6 +265,7 @@ def _build_runtime_config(env: Mapping[str, str]) -> RuntimeConfig:
         command_preview_max_total_chars=command_preview_max_total_chars,
         command_preview_max_total_lines=command_preview_max_total_lines,
         command_preview_max_line_chars=command_preview_max_line_chars,
+        notification_timeout_seconds=notification_timeout_seconds,
         warnings=tuple(warnings),
     )
 
@@ -471,6 +481,45 @@ def read_positive_int_env(
 
     if value <= 0:
         warnings.append(f"Non-positive integer value for {env_var}: {raw_value!r}. Using fallback.")
+        return default
+
+    return value
+
+
+def read_timeout_env(
+    env: Mapping[str, str],
+    env_var: str,
+    *,
+    default: float,
+    warnings: list[str],
+) -> float:
+    """Parse an optional non-negative timeout in seconds from the environment.
+
+    A value of ``0`` disables the timeout so the AppleScript call waits
+    indefinitely. Negative or non-numeric values fall back to the default.
+
+    :param env: Environment mapping to read from.
+    :type env: Mapping[str, str]
+    :param env_var: Variable name to read.
+    :type env_var: str
+    :param default: Default value when no valid override exists.
+    :type default: float
+    :param warnings: Accumulator for config warnings.
+    :type warnings: list[str]
+    :return: Parsed timeout in seconds, or the default.
+    """
+    raw_value = env.get(env_var)
+    if raw_value is None or not raw_value.strip():
+        return default
+
+    try:
+        value = float(raw_value)
+    except ValueError:
+        warnings.append(f"Invalid number value for {env_var}: {raw_value!r}. Using fallback.")
+        return default
+
+    if value < 0:
+        warnings.append(f"Negative number value for {env_var}: {raw_value!r}. Using fallback.")
         return default
 
     return value

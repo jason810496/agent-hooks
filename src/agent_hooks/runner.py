@@ -326,6 +326,7 @@ def run_callback(
     display_transport = transport or AppleScriptTransport(
         skip_osascript=config.skip_osascript,
         dialog_font_size=config.dialog_font_size,
+        notification_timeout=config.notification_timeout_seconds,
     )
     result = hook.dispatch(input_data, display_transport)
     response_text = _render_hook_response(
