@@ -18,6 +18,10 @@ Think "FastAPI for hook callbacks": you implement business logic against typed e
     <p>Write against <code>PermissionRequestEvent</code>, <code>StopEvent</code>, <code>CallbackRequest</code>, and <code>DisplayTransport</code> instead of raw JSON.</p>
   </div>
   <div class="ah-feature-card">
+    <h3>Reusable dependencies</h3>
+    <p>Factor shared context into one-level <code>Depends(...)</code> helpers without dropping down to raw payload plumbing.</p>
+  </div>
+  <div class="ah-feature-card">
     <h3>Unified schema</h3>
     <p>Claude <code>PermissionRequest</code> and Codex <code>PreToolUse</code> both arrive as the same normalized permission event.</p>
   </div>
@@ -66,6 +70,27 @@ def stop_handler(hook_event: StopEvent) -> HookResponse:
 
 `build_permission_response()` lets you choose the policy outcome once and have Agent Hooks render the right provider-specific permission response. `HookResponse(...)` is the generic top-level response model for non-permission events.
 
+## One-Level Dependencies
+
+You can extract reusable handler inputs with `Depends(...)`:
+
+```python
+from agent_hooks import CallbackRequest, Depends
+
+
+def build_command(request: CallbackRequest) -> str:
+    return request.payload.tool_input.command
+
+
+@app.permission()
+def permission_handler(command: str = Depends(build_command)):
+    ...
+```
+
+Dependency callables can receive the same built-in injections as route handlers, but nested dependencies are not supported.
+
+Yield-based dependencies are also supported for resource lifecycles. If a dependency yields one value, that value is injected and the generator is resumed for cleanup after the handler completes.
+
 ## Running The Router
 
 Directly:
@@ -79,7 +104,7 @@ run_callback(app)
 Through the CLI:
 
 ```bash
-agent-hooks run my_hooks:app --app-dir . --provider codex
+agent-hooks run my_hooks.py --app-dir . --provider codex
 ```
 
 ## Route Decorators
@@ -106,16 +131,24 @@ Out-of-the-box response building is intentionally small and typed:
 - `build_permission_response(DialogButton, hook_event)` when you want Agent Hooks to generate the correct provider-specific permission payload
 - `AppleScriptDialogResponse` as the concrete normalized permission-response model returned by `build_permission_response()`
 
-## Fallback Processor
+## Fallback Handler
 
-`AgentHook` defaults to `fallback_to_default_processor=True`.
+`AgentHook` defaults to `fallback_handler=DefaultHookHandler()`.
 
 That means:
 
 - if a route is registered, the route runs
-- if a route is missing, the default processor can still handle supported built-in behavior
+- if a route is missing, the default fallback handler can still handle supported built-in behavior
 
-Set `fallback_to_default_processor=False` if you want your router to fully own the events it registers and return empty responses for everything else.
+Set `fallback_handler=None` if you want your router to fully own the events it registers and return empty responses for everything else.
+
+You can also pass your own fallback handler object:
+
+```python
+from agent_hooks import AgentHook, DefaultHookHandler
+
+app = AgentHook(fallback_handler=DefaultHookHandler())
+```
 
 ## Provider Default
 

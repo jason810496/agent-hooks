@@ -7,7 +7,7 @@ from enum import Enum
 from pathlib import Path
 from typing import cast
 
-from agent_hooks.models import JsonObject, JsonValue
+from agent_hooks.models.schemas.json_types import JsonObject, JsonValue
 
 
 def serialize_json_value(value: object) -> JsonValue:

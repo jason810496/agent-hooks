@@ -102,4 +102,5 @@ nav:
   - Reference:
       - Configuration: reference/configuration.md
       - Logging: reference/logging.md
+      - Troubleshooting: reference/troubleshooting.md
       - Limitations: reference/limitations.md

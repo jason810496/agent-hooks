@@ -11,7 +11,9 @@ from pathlib import Path
 
 from agent_hooks.enums import HookEventName, HookProvider
 from agent_hooks.middleware import HookMiddlewareContext, NextMiddleware
-from agent_hooks.models import HookPayload, HookProcessingResult, HookResponse
+from agent_hooks.models.schemas.hooks import HookPayload
+from agent_hooks.models.schemas.processing import HookProcessingResult
+from agent_hooks.models.schemas.responses import HookResponse
 
 CODEX_EXECPOLICY_MODEL_ENV_VAR = "AGENT_HOOK_CODEX_EXECPOLICY_MODEL"
 CODEX_EXECPOLICY_RULES_ENV_VAR = "AGENT_HOOK_CODEX_EXECPOLICY_RULES"

@@ -6,10 +6,9 @@ import argparse
 from collections.abc import Sequence
 from pathlib import Path
 
+from agent_hooks.cli_app.app import app as builtin_app
 from agent_hooks.enums import HookProvider
-from agent_hooks.runner import load_run_callback_target, run_callback
-
-DEFAULT_CALLBACK_TARGET = "cli_app.app:app"
+from agent_hooks.runner import AgentHookFileLoader, run_callback
 
 
 def build_argument_parser() -> argparse.ArgumentParser:
@@ -30,11 +29,11 @@ def build_argument_parser() -> argparse.ArgumentParser:
 
     run_parser = subparsers.add_parser(
         "run",
-        help="Run a custom AgentHook app from a Python file or import string.",
+        help="Run a custom AgentHook app from a Python file.",
     )
     run_parser.add_argument(
         "target",
-        help="Python file path like 'main.py' or import string like 'main:app'.",
+        help="Python file path like 'main.py' containing a top-level AgentHook instance.",
     )
     run_parser.add_argument(
         "--app-dir",
@@ -59,8 +58,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_argument_parser()
     args = parser.parse_args(list(argv) if argv is not None else None)
     if args.command in {None, "callback"}:
-        return run_callback(DEFAULT_CALLBACK_TARGET, provider=getattr(args, "provider", None))
+        return run_callback(builtin_app, provider=getattr(args, "provider", None))
     if args.command == "run":
-        target = load_run_callback_target(args.target, app_dir=Path(args.app_dir))
+        target = AgentHookFileLoader(app_dir=Path(args.app_dir)).load(args.target)
         return run_callback(target, provider=args.provider)
     return 0

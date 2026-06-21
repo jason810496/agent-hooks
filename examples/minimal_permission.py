@@ -22,7 +22,7 @@ SAFE_BASH_PREFIXES = (
 )
 SAFE_FILE_TOOLS = frozenset({"Read", "Glob", "Grep", "LS"})
 
-app = AgentHook(fallback_to_default_processor=False)
+app = AgentHook(fallback_handler=None)
 
 
 def command_is_safe(command: str) -> bool:

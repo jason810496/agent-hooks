@@ -15,7 +15,7 @@ from agent_hooks.enums import DialogButton
 REMOTE_TARGET_PREFIXES = ("gs://", "http://", "https://", "s3://")
 UPLOAD_FLAGS = frozenset({"--data", "--data-binary", "--form", "--upload-file", "-F", "-T", "-d"})
 
-app = AgentHook(fallback_to_default_processor=False)
+app = AgentHook(fallback_handler=None)
 
 
 def command_looks_like_remote_transfer(argv: list[str]) -> bool:

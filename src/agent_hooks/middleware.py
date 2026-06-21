@@ -6,7 +6,8 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Protocol, TypeAlias
 
-from agent_hooks.models import HookInput, HookPayload, HookProcessingResult
+from agent_hooks.models.schemas.hooks import HookInput, HookPayload
+from agent_hooks.models.schemas.processing import HookProcessingResult
 from agent_hooks.transport import DisplayTransport
 
 

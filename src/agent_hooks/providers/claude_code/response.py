@@ -5,7 +5,8 @@ from __future__ import annotations
 import contextlib
 
 from agent_hooks.enums import HookEventName
-from agent_hooks.models import HookPayload, JsonObject
+from agent_hooks.models.schemas.hooks import HookPayload
+from agent_hooks.models.schemas.json_types import JsonObject
 from agent_hooks.providers.claude_code.payload import RAW_EVENT_TO_NORMALIZED
 from agent_hooks.providers.common import coerce_object, coerce_text
 
@@ -76,12 +77,16 @@ def render_hook_specific_output(
         behavior = coerce_text(decision.get("behavior"))
         if behavior:
             payload["permissionDecision"] = behavior
-        if raw_payload.get("permissionDecisionReason"):
-            payload["permissionDecisionReason"] = coerce_text(
-                raw_payload.get("permissionDecisionReason")
-            )
-        if raw_payload.get("updatedInput") is not None:
-            payload["updatedInput"] = raw_payload.get("updatedInput")
+        reason = coerce_text(decision.get("message")) or coerce_text(
+            raw_payload.get("permissionDecisionReason")
+        )
+        if reason:
+            payload["permissionDecisionReason"] = reason
+        updated_input = decision.get("updatedInput")
+        if updated_input is None:
+            updated_input = raw_payload.get("updatedInput")
+        if updated_input is not None:
+            payload["updatedInput"] = updated_input
         if raw_payload.get("additionalContext"):
             payload["additionalContext"] = coerce_text(raw_payload.get("additionalContext"))
         return payload if len(payload) > 1 else {}

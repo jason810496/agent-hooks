@@ -8,16 +8,16 @@ from typing import cast
 
 import pytest
 
+import agent_hooks.runner as runner_module
 from agent_hooks.enums import AppleScriptInvocation, HookProvider, TransportStatus
-from agent_hooks.models import (
+from agent_hooks.models.request import HookInput
+from agent_hooks.models.response import (
     AppleScriptResult,
     DialogResult,
     DialogSpec,
-    HookInput,
     NotificationSpec,
 )
 from agent_hooks.parsing import read_hook_input
-from agent_hooks.runner import CallbackDispatcher, load_run_callback_target, render_hook_response
 
 ROOT = Path(__file__).resolve().parents[1]
 EXAMPLES_DIR = ROOT / "examples"
@@ -69,11 +69,8 @@ def build_input(payload: Mapping[str, object], provider: HookProvider) -> HookIn
     return read_hook_input(StringIO(json.dumps(payload)), provider=provider)
 
 
-def load_example_app(reference: str) -> CallbackDispatcher:
-    target = load_run_callback_target(reference, app_dir=EXAMPLES_DIR)
-    if isinstance(target, str) or not hasattr(target, "dispatch"):
-        raise TypeError(f"{reference} did not resolve to a dispatch-capable callback target.")
-    return cast(CallbackDispatcher, target)
+def load_example_app(reference: str):
+    return cast(object, runner_module.AgentHookFileLoader(app_dir=EXAMPLES_DIR).load(reference))
 
 
 class TestExampleLoading:
@@ -132,7 +129,7 @@ class TestExampleBehavior:
 
         result = app.dispatch(input_data, FakeTransport())
         rendered = json.loads(
-            render_hook_response(
+            runner_module._render_hook_response(
                 result.response,
                 provider=HookProvider.CODEX,
                 input_payload=input_data.payload,
@@ -167,7 +164,7 @@ class TestExampleBehavior:
 
         result = app.dispatch(input_data, FakeTransport())
         rendered = json.loads(
-            render_hook_response(
+            runner_module._render_hook_response(
                 result.response,
                 provider=HookProvider.CLAUDE_CODE,
                 input_payload=input_data.payload,
@@ -199,7 +196,7 @@ class TestExampleBehavior:
 
         result = app.dispatch(input_data, FakeTransport())
         rendered = json.loads(
-            render_hook_response(
+            runner_module._render_hook_response(
                 result.response,
                 provider=HookProvider.CODEX,
                 input_payload=input_data.payload,
@@ -229,7 +226,7 @@ class TestExampleBehavior:
 
         result = app.dispatch(input_data, transport)
         rendered = json.loads(
-            render_hook_response(
+            runner_module._render_hook_response(
                 result.response,
                 provider=HookProvider.CODEX,
                 input_payload=input_data.payload,
@@ -262,7 +259,7 @@ class TestExampleBehavior:
 
         result = app.dispatch(input_data, FakeTransport())
         rendered = json.loads(
-            render_hook_response(
+            runner_module._render_hook_response(
                 result.response,
                 provider=HookProvider.CLAUDE_CODE,
                 input_payload=input_data.payload,
@@ -336,7 +333,7 @@ class TestExampleBehavior:
 
         result = app.dispatch(input_data, FakeTransport())
         rendered = json.loads(
-            render_hook_response(
+            runner_module._render_hook_response(
                 result.response,
                 provider=HookProvider.CODEX,
                 input_payload=input_data.payload,
@@ -367,7 +364,7 @@ class TestExampleBehavior:
 
         result = app.dispatch(input_data, FakeTransport())
         rendered = json.loads(
-            render_hook_response(
+            runner_module._render_hook_response(
                 result.response,
                 provider=HookProvider.CODEX,
                 input_payload=input_data.payload,
@@ -397,7 +394,7 @@ class TestExampleBehavior:
 
         result = app.dispatch(input_data, FakeTransport())
         rendered = json.loads(
-            render_hook_response(
+            runner_module._render_hook_response(
                 result.response,
                 provider=HookProvider.CODEX,
                 input_payload=input_data.payload,
@@ -448,7 +445,7 @@ class TestExampleBehavior:
 
         blocked_result = app.dispatch(stop_input, FakeTransport())
         blocked_render = json.loads(
-            render_hook_response(
+            runner_module._render_hook_response(
                 blocked_result.response,
                 provider=HookProvider.CODEX,
                 input_payload=stop_input.payload,
@@ -477,7 +474,7 @@ class TestExampleBehavior:
 
         allowed_result = app.dispatch(stop_input, FakeTransport())
         allowed_render = json.loads(
-            render_hook_response(
+            runner_module._render_hook_response(
                 allowed_result.response,
                 provider=HookProvider.CODEX,
                 input_payload=stop_input.payload,

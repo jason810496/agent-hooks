@@ -30,7 +30,7 @@
 
 - FastAPI-like decorator routes
 - Typed event models per route
-- Injection for `CallbackRequest` and `DisplayTransport`
+- Injection for `CallbackRequest`, `DisplayTransport`, and one-level `Depends(...)`
 - Custom response models supported when they satisfy the response protocol
 - Middleware support for short-circuiting or augmenting dispatch
 

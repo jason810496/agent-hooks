@@ -28,6 +28,7 @@ This page is intentionally blunt. It describes current implementation limits, no
 ## Framework Limits
 
 - The framework normalizes shared event semantics, but provider-specific raw payload details still matter for advanced cases.
+- Route dependencies support only one resolution level. Nested `Depends(...)` declarations are rejected during route registration.
 - If you need raw provider fields that are not lifted into the shared models, you must read `payload.raw`.
 
 ## Packaging Limits

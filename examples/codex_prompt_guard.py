@@ -22,7 +22,7 @@ SECRET_PATTERNS = (
     re.compile(r"AKIA[0-9A-Z]{16}"),
 )
 
-app = AgentHook(fallback_to_default_processor=False, provider=HookProvider.CODEX)
+app = AgentHook(fallback_handler=None, provider=HookProvider.CODEX)
 
 
 def blocked_reason(prompt: str) -> str | None:

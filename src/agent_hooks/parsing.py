@@ -8,14 +8,9 @@ from json import JSONDecodeError
 from typing import IO, cast
 
 from agent_hooks.enums import HookProvider
-from agent_hooks.models import HookInput, HookPayload, JsonObject
-from agent_hooks.providers import (
-    build_hook_payload as build_provider_hook_payload,
-)
-from agent_hooks.providers import (
-    coerce_provider,
-    infer_provider,
-)
+from agent_hooks.models.schemas.hooks import HookInput, HookPayload
+from agent_hooks.models.schemas.json_types import JsonObject
+from agent_hooks.providers import provider_client
 
 
 def read_hook_input(
@@ -26,11 +21,11 @@ def read_hook_input(
     """Read and decode hook stdin."""
     stream = stdin if stdin is not None else sys.stdin
     raw_input = stream.read()
-    resolved_provider = coerce_provider(provider) if provider is not None else None
+    resolved_provider = provider_client.coerce_provider(provider) if provider is not None else None
     if not raw_input.strip():
         return HookInput(
             raw_input=raw_input,
-            payload=HookPayload(provider=coerce_provider(resolved_provider)),
+            payload=HookPayload(provider=provider_client.coerce_provider(resolved_provider)),
         )
 
     try:
@@ -38,19 +33,19 @@ def read_hook_input(
     except JSONDecodeError as exc:
         return HookInput(
             raw_input=raw_input,
-            payload=HookPayload(provider=coerce_provider(resolved_provider)),
+            payload=HookPayload(provider=provider_client.coerce_provider(resolved_provider)),
             parse_error=f"Invalid hook JSON: {exc}",
         )
 
     if not isinstance(parsed, dict):
         return HookInput(
             raw_input=raw_input,
-            payload=HookPayload(provider=coerce_provider(resolved_provider)),
+            payload=HookPayload(provider=provider_client.coerce_provider(resolved_provider)),
             parse_error="Hook input was not a JSON object",
         )
 
     parsed_payload = cast(JsonObject, parsed)
-    effective_provider = resolved_provider or infer_provider(parsed_payload)
+    effective_provider = resolved_provider or provider_client.infer_provider(parsed_payload)
     payload = build_hook_payload(parsed_payload, provider=effective_provider)
     return HookInput(raw_input=raw_input, payload=payload)
 
@@ -61,4 +56,4 @@ def build_hook_payload(
     provider: HookProvider | str | None = None,
 ) -> HookPayload:
     """Normalize a raw JSON payload into the shared domain model."""
-    return build_provider_hook_payload(provider, raw_payload)
+    return provider_client.build_hook_payload(raw_payload, provider=provider)

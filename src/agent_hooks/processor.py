@@ -1,35 +1,31 @@
-"""Orchestrate normalized payload processing."""
+"""Compatibility imports for the former processing module."""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
-from agent_hooks.enums import DialogButton, HookEventName, TransportStatus
-from agent_hooks.models import (
-    AppleScriptDialogResponse,
-    AppleScriptResult,
-    HookInput,
-    HookPayload,
-    HookProcessingResult,
-    HookResponse,
+from agent_hooks.default_handlers import (
+    DEFAULT_HOOK_RESPONSE,
+    DefaultHookHandler,
+    HookFallbackHandler,
+    build_permission_response,
+    process_notification_event,
+    process_permission_request,
+    transport_error,
 )
-from agent_hooks.presentation import build_notification, build_permission_dialog
-from agent_hooks.providers import build_permission_response as build_provider_permission_response
-from agent_hooks.transport import DisplayTransport
+from agent_hooks.enums import HookEventName
+from agent_hooks.models.schemas.processing import HookProcessingResult
 
 if TYPE_CHECKING:
-    from agent_hooks.router import (
-        NotificationEvent,
-        PermissionRequestEvent,
-        StopEvent,
-        StopFailureEvent,
-    )
-
-DEFAULT_HOOK_RESPONSE = HookResponse()
+    from agent_hooks.models.schemas.hooks import HookInput
+    from agent_hooks.transport import DisplayTransport
 
 
 def process_hook(input_data: HookInput, transport: DisplayTransport) -> HookProcessingResult:
     """Process a parsed hook payload into a response and optional UI action.
+
+    Preserved for backward compatibility with the former ``agent_hooks.processor``
+    module. New code should route through ``AgentHook`` and its fallback handler.
 
     :param input_data: Parsed hook input.
     :type input_data: HookInput
@@ -38,120 +34,27 @@ def process_hook(input_data: HookInput, transport: DisplayTransport) -> HookProc
     :return: Processing result for logging and emission.
     """
     error = input_data.parse_error
-    if input_data.parse_error is not None:
+    if error is not None:
         return HookProcessingResult(
             display=None,
             transport_result=None,
             response=DEFAULT_HOOK_RESPONSE,
-            error=input_data.parse_error,
+            error=error,
         )
 
     payload = input_data.payload
     if payload.event_name == HookEventName.PERMISSION_REQUEST:
         return process_permission_request(payload, transport, current_error=error)
-
     return process_notification_event(payload, transport, current_error=error)
 
 
-def process_permission_request(
-    payload: HookPayload | PermissionRequestEvent,
-    transport: DisplayTransport,
-    *,
-    current_error: str | None = None,
-) -> HookProcessingResult:
-    """Process a permission request through the display transport.
-
-    :param payload: Normalized permission payload.
-    :type payload: HookPayload
-    :param transport: UI transport implementation.
-    :type transport: DisplayTransport
-    :param current_error: Existing processing error, if any.
-    :type current_error: str | None
-    :return: Processing result for logging and emission.
-    """
-    normalized_payload = cast(HookPayload, payload)
-    dialog = build_permission_dialog(normalized_payload)
-    dialog_result = transport.show_dialog(dialog)
-    response = (
-        build_permission_response(dialog_result.button, normalized_payload)
-        if dialog_result.button is not None
-        else DEFAULT_HOOK_RESPONSE
-    )
-    return HookProcessingResult(
-        display=dialog,
-        transport_result=dialog_result.transport,
-        response=response,
-        error=transport_error(dialog_result.transport, current_error),
-    )
-
-
-def process_notification_event(
-    payload: HookPayload | NotificationEvent | StopEvent | StopFailureEvent,
-    transport: DisplayTransport,
-    *,
-    current_error: str | None = None,
-) -> HookProcessingResult:
-    """Process a notification-like event through the display transport.
-
-    :param payload: Normalized hook payload.
-    :type payload: HookPayload
-    :param transport: UI transport implementation.
-    :type transport: DisplayTransport
-    :param current_error: Existing processing error, if any.
-    :type current_error: str | None
-    :return: Processing result for logging and emission.
-    """
-    notification = build_notification(cast(HookPayload, payload))
-    if notification is None:
-        return HookProcessingResult(
-            display=None,
-            transport_result=None,
-            response=DEFAULT_HOOK_RESPONSE,
-            error=current_error,
-        )
-
-    transport_result = transport.send_notification(notification)
-    return HookProcessingResult(
-        display=notification,
-        transport_result=transport_result,
-        response=DEFAULT_HOOK_RESPONSE,
-        error=transport_error(transport_result, current_error),
-    )
-
-
-def build_permission_response(
-    button: DialogButton,
-    payload: HookPayload | PermissionRequestEvent,
-) -> AppleScriptDialogResponse:
-    """Build the permission response for a selected dialog button.
-
-    :param button: Selected dialog button.
-    :type button: DialogButton
-    :param payload: Normalized hook payload.
-    :type payload: HookPayload
-    :return: Structured permission response model.
-    """
-    return build_provider_permission_response(button, cast(HookPayload, payload))
-
-
-def transport_error(transport_result: object, current_error: str | None) -> str | None:
-    """Return the effective error after a transport action.
-
-    :param transport_result: Transport result to inspect.
-    :type transport_result: object
-    :param current_error: Existing error, if any.
-    :type current_error: str | None
-    :return: Effective error string, or ``None`` when no error exists.
-    """
-    if current_error is not None:
-        return current_error
-
-    if not isinstance(transport_result, AppleScriptResult):
-        return current_error
-
-    status = transport_result.status
-    if status != TransportStatus.FAILED:
-        return None
-
-    stderr = transport_result.stderr
-    return stderr or "osascript exited non-zero"
+__all__ = [
+    "DEFAULT_HOOK_RESPONSE",
+    "DefaultHookHandler",
+    "HookFallbackHandler",
+    "build_permission_response",
+    "process_hook",
+    "process_notification_event",
+    "process_permission_request",
+    "transport_error",
+]

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from agent_hooks.enums import HookProvider
-from agent_hooks.models import JsonObject
+from agent_hooks.models.schemas.json_types import JsonObject
 from agent_hooks.providers.interfaces import HookProviderAdapter
 
 from . import claude_code, codex

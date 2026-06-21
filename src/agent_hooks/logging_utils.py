@@ -7,7 +7,11 @@ import logging
 from logging.handlers import RotatingFileHandler
 
 from agent_hooks.config import ApplicationLoggingConfig, FileLoggingConfig
-from agent_hooks.models import ApplicationLogRecord, InputAuditLogRecord, ResponseAuditLogRecord
+from agent_hooks.models.schemas.log_records import (
+    ApplicationLogRecord,
+    InputAuditLogRecord,
+    ResponseAuditLogRecord,
+)
 from agent_hooks.serialization import serialize_json_value
 
 APPLICATION_LOGGER_NAME = "agent-hooks.application"

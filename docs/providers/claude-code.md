@@ -55,6 +55,17 @@ Put this in `~/.claude/settings.json` for a global setup, or in `.claude/setting
           }
         ]
       }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "agent-hooks callback --provider claude-code"
+          }
+        ]
+      }
     ]
   }
 }
@@ -65,6 +76,7 @@ This setup wires the built-in callback into the Claude flows Agent Hooks handles
 - `PermissionRequest` for local allow or deny decisions
 - `Notification` with `matcher: "permission_prompt"` so attention requests also surface locally
 - `Stop` and `StopFailure` for local completion or error visibility
+- `PreToolUse` with `matcher: "AskUserQuestion"` so the [native picker](#askuserquestion-picker) fires for every question (including auto-allowed tool calls that skip `PermissionRequest`)
 
 !!! tip "Why the explicit provider flag"
     Use `--provider claude-code` in the hook command even though Claude payloads are often identifiable on their own. It keeps the callback wiring explicit and easier to debug later.
@@ -75,6 +87,7 @@ The Claude adapter currently normalizes these raw events into first-class shared
 
 - `Notification`
 - `PermissionRequest`
+- `PreToolUse` (only when `tool_name == "AskUserQuestion"`; normalized to `PermissionRequest` so the picker flow handles it)
 - `Stop`
 - `StopFailure`
 
@@ -86,6 +99,7 @@ The built-in callback app gives Claude Code:
 
 - notification rendering for `Notification`
 - permission dialogs for `PermissionRequest`
+- the [AskUserQuestion picker](#askuserquestion-picker) for `PreToolUse` on `AskUserQuestion`
 - completion notifications for `Stop`
 - error notifications for `StopFailure`
 
@@ -100,6 +114,48 @@ Claude permission responses support three dialog choices:
 `Always Allow` is session-scoped. When Claude supplies `permission_suggestions`, Agent Hooks converts them into `updatedPermissions` with destination `session`.
 
 That means the built-in Claude flow can preview and apply session rules without inventing its own permission format.
+
+### AskUserQuestion Picker
+
+When Claude Code calls the built-in `AskUserQuestion` tool, Agent Hooks intercepts the request and shows a native macOS picker for each question instead of the standard `Allow Once` / `Always Allow` / `Deny` dialog. The picker:
+
+- uses radio-style single selection for `multiSelect: false` questions and shift-/cmd-click multi-selection for `multiSelect: true` questions
+- shows the question text and each option's `description` as the prompt body
+- exposes `Submit` and `Cancel` buttons in place of the standard permission buttons
+
+When the user clicks `Submit`, the hook responds with `permissionDecision: "allow"` (PreToolUse) or `decision: { behavior: "allow" }` (PermissionRequest) together with an `updatedInput` block that contains the original `questions` plus an `answers` map keyed by question text. Claude Code consumes those answers directly and skips its built-in TUI picker, so the user only picks once.
+
+When the user clicks `Cancel`, the hook responds with a deny decision and the request is dropped.
+
+#### Required hook wiring
+
+To enable the picker, the hook must run for `AskUserQuestion` invocations. The Quick Setup snippet already includes the required entry:
+
+```json
+"PreToolUse": [
+  {
+    "matcher": "AskUserQuestion",
+    "hooks": [
+      {
+        "type": "command",
+        "command": "agent-hooks callback --provider claude-code"
+      }
+    ]
+  }
+]
+```
+
+`PreToolUse` is required because `AskUserQuestion` can be auto-allowed (for example when a skill's `allowed-tools` lists it), in which case `PermissionRequest` never fires and the picker would be bypassed. The matcher narrows the hook to `AskUserQuestion` so other tool calls keep their normal `PermissionRequest` flow.
+
+If you also keep the `PermissionRequest` hook from the Quick Setup, Agent Hooks deduplicates: whichever event fires first opens the picker, and the response carries the answers back through whichever wire shape Claude Code expects for that event.
+
+#### Fallback
+
+If `osascript` is unavailable (non-macOS hosts, sandboxed environments, or `AGENT_HOOK_DISABLE_OSASCRIPT=1`), Agent Hooks falls back to the standard permission dialog with a text preview of the questions so the request is still actionable.
+
+#### Try it
+
+To exercise this picker locally, ask Claude Code something like _"Ask me a couple of multi-option questions to test the picker."_ A separate native dialog opens for each question, and the answers flow back to Claude Code without its TUI prompting again.
 
 ## Response Rendering
 

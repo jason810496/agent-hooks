@@ -77,6 +77,6 @@ The Codex samples use `"cwd": "."` so they work from the repository root. If you
 - `claude_permission_suggestion_filter.py` only uses Claude session rules for reviewed Bash suggestions.
 - `codex_session_journal.py` writes JSONL files under `.agent-hooks/session-journal/` by default.
 - `codex_test_before_stop.py` writes per-session state under `.agent-hooks/test-before-stop/` by default.
-- `audit_exporter.py` writes compact JSONL audit records under `.agent-hooks/audit-export/` by default while still falling back to the built-in processor.
+- `audit_exporter.py` writes compact JSONL audit records under `.agent-hooks/audit-export/` by default while still falling back to the built-in handler.
 - Set `AGENT_HOOK_SESSION_JOURNAL_DIR` to move the journal somewhere else.
 - `codex_repo_context.py` is intentionally conservative and only reads a short preview from a few common project files.

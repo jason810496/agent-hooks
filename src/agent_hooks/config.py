@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import logging
+import math
 import os
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 
 from agent_hooks.enums import HookProvider
@@ -18,12 +22,22 @@ DEFAULT_LOG_DIRECTORY_NAME = "logs"
 DEFAULT_APPLICATION_LOG_FILENAME = "hooks.log"
 DEFAULT_INPUT_AUDIT_LOG_FILENAME = "hooks.raw.log"
 DEFAULT_RESPONSE_AUDIT_LOG_FILENAME = "hooks.response.log"
+DEFAULT_DIALOG_FONT_SIZE = 13
+DEFAULT_COMMAND_PREVIEW_MAX_TOTAL_CHARS = 900
+DEFAULT_COMMAND_PREVIEW_MAX_TOTAL_LINES = 10
+DEFAULT_COMMAND_PREVIEW_MAX_LINE_CHARS = 100
+DEFAULT_NOTIFICATION_TIMEOUT_SECONDS = 10.0
 
 APPLICATION_LOG_FORMAT_ENV_VAR = "AGENT_HOOK_APP_LOG_FORMAT"
 APPLICATION_LOG_LEVEL_ENV_VAR = "AGENT_HOOK_APP_LOG_LEVEL"
 APPLICATION_LOG_PATH_ENV_VAR = "AGENT_HOOK_APP_LOG_PATH"
 APPLICATION_LOG_MAX_BYTES_ENV_VAR = "AGENT_HOOK_APP_LOG_MAX_BYTES"
 APPLICATION_LOG_BACKUP_COUNT_ENV_VAR = "AGENT_HOOK_APP_LOG_BACKUP_COUNT"
+COMMAND_PREVIEW_MAX_TOTAL_CHARS_ENV_VAR = "AGENT_HOOK_COMMAND_PREVIEW_MAX_TOTAL_CHARS"
+COMMAND_PREVIEW_MAX_TOTAL_LINES_ENV_VAR = "AGENT_HOOK_COMMAND_PREVIEW_MAX_TOTAL_LINES"
+COMMAND_PREVIEW_MAX_LINE_CHARS_ENV_VAR = "AGENT_HOOK_COMMAND_PREVIEW_MAX_LINE_CHARS"
+DIALOG_FONT_SIZE_ENV_VAR = "AGENT_HOOK_DIALOG_FONT_SIZE"
+NOTIFICATION_TIMEOUT_ENV_VAR = "AGENT_HOOK_NOTIFICATION_TIMEOUT"
 PROVIDER_ENV_VAR = "AGENT_HOOK_PROVIDER"
 DISABLE_OSASCRIPT_ENV_VARS = (
     "AGENT_HOOK_DISABLE_OSASCRIPT",
@@ -88,6 +102,11 @@ class RuntimeConfig:
     skip_osascript: bool
     application_logging: ApplicationLoggingConfig
     audit_logging: AuditLoggingConfig
+    dialog_font_size: int = DEFAULT_DIALOG_FONT_SIZE
+    command_preview_max_total_chars: int = DEFAULT_COMMAND_PREVIEW_MAX_TOTAL_CHARS
+    command_preview_max_total_lines: int = DEFAULT_COMMAND_PREVIEW_MAX_TOTAL_LINES
+    command_preview_max_line_chars: int = DEFAULT_COMMAND_PREVIEW_MAX_LINE_CHARS
+    notification_timeout_seconds: float = DEFAULT_NOTIFICATION_TIMEOUT_SECONDS
     warnings: tuple[str, ...] = ()
 
     @property
@@ -115,6 +134,11 @@ class RuntimeConfig:
         return self.audit_logging.response_file.path
 
 
+_ACTIVE_RUNTIME_CONFIG: ContextVar[RuntimeConfig | None] = ContextVar(
+    "agent_hooks_active_runtime_config", default=None
+)
+
+
 def load_runtime_config(env: Mapping[str, str] | None = None) -> RuntimeConfig:
     """Build the runtime configuration from the current environment.
 
@@ -122,7 +146,51 @@ def load_runtime_config(env: Mapping[str, str] | None = None) -> RuntimeConfig:
     :type env: Mapping[str, str] | None
     :return: Normalized runtime configuration.
     """
-    environment = os.environ if env is None else env
+    if env is None:
+        return _load_current_runtime_config()
+    return _build_runtime_config(env)
+
+
+@contextmanager
+def use_runtime_config(config: RuntimeConfig) -> Iterator[None]:
+    """Bind the active runtime configuration for the current execution context.
+
+    Deep presentation helpers (for example command-preview formatting) read the
+    bound configuration through :func:`get_active_runtime_config` so that an
+    explicitly supplied :class:`RuntimeConfig` is honored instead of the cached
+    process-environment configuration.
+
+    :param config: Runtime configuration to bind for the nested block.
+    :type config: RuntimeConfig
+    """
+    token = _ACTIVE_RUNTIME_CONFIG.set(config)
+    try:
+        yield
+    finally:
+        _ACTIVE_RUNTIME_CONFIG.reset(token)
+
+
+def get_active_runtime_config() -> RuntimeConfig:
+    """Return the runtime configuration bound for the current execution context.
+
+    :return: The configuration bound by :func:`use_runtime_config`, or the cached
+        process-environment configuration when none is bound.
+    """
+    active = _ACTIVE_RUNTIME_CONFIG.get()
+    if active is not None:
+        return active
+    return load_runtime_config()
+
+
+@cache
+def _load_current_runtime_config() -> RuntimeConfig:
+    """Build and cache runtime configuration from the process environment."""
+    return _build_runtime_config(os.environ)
+
+
+def _build_runtime_config(env: Mapping[str, str]) -> RuntimeConfig:
+    """Build runtime configuration from an explicit environment mapping."""
+    environment = env
     warnings: list[str] = []
     default_project_root = Path(__file__).resolve().parents[2]
     project_root = read_path_env(
@@ -186,6 +254,36 @@ def load_runtime_config(env: Mapping[str, str] | None = None) -> RuntimeConfig:
         PROVIDER_ENV_VAR,
         warnings=warnings,
     )
+    dialog_font_size = read_positive_int_env(
+        environment,
+        DIALOG_FONT_SIZE_ENV_VAR,
+        default=DEFAULT_DIALOG_FONT_SIZE,
+        warnings=warnings,
+    )
+    command_preview_max_total_chars = read_positive_int_env(
+        environment,
+        COMMAND_PREVIEW_MAX_TOTAL_CHARS_ENV_VAR,
+        default=DEFAULT_COMMAND_PREVIEW_MAX_TOTAL_CHARS,
+        warnings=warnings,
+    )
+    command_preview_max_total_lines = read_positive_int_env(
+        environment,
+        COMMAND_PREVIEW_MAX_TOTAL_LINES_ENV_VAR,
+        default=DEFAULT_COMMAND_PREVIEW_MAX_TOTAL_LINES,
+        warnings=warnings,
+    )
+    command_preview_max_line_chars = read_positive_int_env(
+        environment,
+        COMMAND_PREVIEW_MAX_LINE_CHARS_ENV_VAR,
+        default=DEFAULT_COMMAND_PREVIEW_MAX_LINE_CHARS,
+        warnings=warnings,
+    )
+    notification_timeout_seconds = read_timeout_env(
+        environment,
+        NOTIFICATION_TIMEOUT_ENV_VAR,
+        default=DEFAULT_NOTIFICATION_TIMEOUT_SECONDS,
+        warnings=warnings,
+    )
 
     return RuntimeConfig(
         project_root=project_root,
@@ -202,8 +300,16 @@ def load_runtime_config(env: Mapping[str, str] | None = None) -> RuntimeConfig:
             input_file=input_audit_file,
             response_file=response_audit_file,
         ),
+        dialog_font_size=dialog_font_size,
+        command_preview_max_total_chars=command_preview_max_total_chars,
+        command_preview_max_total_lines=command_preview_max_total_lines,
+        command_preview_max_line_chars=command_preview_max_line_chars,
+        notification_timeout_seconds=notification_timeout_seconds,
         warnings=tuple(warnings),
     )
+
+
+load_runtime_config.cache_clear = _load_current_runtime_config.cache_clear  # type: ignore[attr-defined]
 
 
 def read_provider_env(
@@ -381,6 +487,85 @@ def read_non_negative_int_env(
         return value
 
     return default
+
+
+def read_positive_int_env(
+    env: Mapping[str, str],
+    env_var: str,
+    *,
+    default: int,
+    warnings: list[str],
+) -> int:
+    """Parse an optional positive integer from the environment.
+
+    :param env: Environment mapping to read from.
+    :type env: Mapping[str, str]
+    :param env_var: Variable name to read.
+    :type env_var: str
+    :param default: Default value when no valid override exists.
+    :type default: int
+    :param warnings: Accumulator for config warnings.
+    :type warnings: list[str]
+    :return: Parsed positive integer, or the default.
+    """
+    raw_value = env.get(env_var)
+    if raw_value is None or not raw_value.strip():
+        return default
+
+    try:
+        value = int(raw_value)
+    except ValueError:
+        warnings.append(f"Invalid integer value for {env_var}: {raw_value!r}. Using fallback.")
+        return default
+
+    if value <= 0:
+        warnings.append(f"Non-positive integer value for {env_var}: {raw_value!r}. Using fallback.")
+        return default
+
+    return value
+
+
+def read_timeout_env(
+    env: Mapping[str, str],
+    env_var: str,
+    *,
+    default: float,
+    warnings: list[str],
+) -> float:
+    """Parse an optional non-negative timeout in seconds from the environment.
+
+    A value of ``0`` disables the timeout so the AppleScript call waits
+    indefinitely. Negative or non-numeric values fall back to the default.
+
+    :param env: Environment mapping to read from.
+    :type env: Mapping[str, str]
+    :param env_var: Variable name to read.
+    :type env_var: str
+    :param default: Default value when no valid override exists.
+    :type default: float
+    :param warnings: Accumulator for config warnings.
+    :type warnings: list[str]
+    :return: Parsed timeout in seconds, or the default.
+    """
+    raw_value = env.get(env_var)
+    if raw_value is None or not raw_value.strip():
+        return default
+
+    try:
+        value = float(raw_value)
+    except ValueError:
+        warnings.append(f"Invalid number value for {env_var}: {raw_value!r}. Using fallback.")
+        return default
+
+    if not math.isfinite(value):
+        warnings.append(f"Non-finite number value for {env_var}: {raw_value!r}. Using fallback.")
+        return default
+
+    if value < 0:
+        warnings.append(f"Negative number value for {env_var}: {raw_value!r}. Using fallback.")
+        return default
+
+    return value
 
 
 def read_path_env(

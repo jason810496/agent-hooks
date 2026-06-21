@@ -160,4 +160,7 @@ Accepted truthy values include `1`, `true`, `yes`, and `on`.
 !!! note "If the callback looks quiet"
     Some events intentionally return empty responses. That does **not** necessarily mean the callback failed. Check the local logs if you need to confirm what was received and rendered.
 
+!!! warning "Notifications missing, or the response looks blocked?"
+    If notifications never appear while a **Focus / Do Not Disturb / Work** mode is active, or a Claude Code turn seems to hang after it finishes, see [Troubleshooting](../reference/troubleshooting.md). Both are usually macOS notification-permission settings rather than callback failures.
+
 If you need custom behavior instead of the built-in app, move on to [Custom Apps](../cli/custom-apps.md).

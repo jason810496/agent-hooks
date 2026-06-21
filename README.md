@@ -53,10 +53,41 @@ def permission_handler(hook_event: PermissionRequestEvent):
 ```
 
 ```bash
-agent-hooks run my_hooks:app --provider codex
+agent-hooks run my_hooks.py --provider codex
 ```
 
 A single typed handler can serve Claude Code's `PermissionRequest` and Codex's `PreToolUse` without requiring provider-specific schema glue.
+
+You can also factor reusable route inputs with one-level dependencies:
+
+```python
+from agent_hooks import CallbackRequest, Depends
+
+
+def build_command(request: CallbackRequest) -> str:
+    return request.payload.tool_input.command
+
+
+@app.permission()
+def permission_handler(command: str = Depends(build_command)):
+    ...
+```
+
+Yield-based dependencies are also supported for scoped resources:
+
+```python
+def get_db():
+    db = connect_db()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+@app.permission()
+def permission_handler(db = Depends(get_db)):
+    ...
+```
 
 ## Why It Exists
 

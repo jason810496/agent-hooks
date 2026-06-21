@@ -11,7 +11,7 @@ from agent_hooks import (
     build_permission_response,
 )
 from agent_hooks.enums import DialogButton, HookEventName, PermissionBehavior
-from agent_hooks.models import HookSpecificOutput, PermissionDecision, PermissionUpdate
+from agent_hooks.models.response import HookSpecificOutput, PermissionDecision, PermissionUpdate
 
 SAFE_BASH_RULE_PREFIXES = (
     "find ",
@@ -24,7 +24,7 @@ SAFE_BASH_RULE_PREFIXES = (
     "rg ",
 )
 
-app = AgentHook(fallback_to_default_processor=False, provider=HookProvider.CLAUDE_CODE)
+app = AgentHook(fallback_handler=None, provider=HookProvider.CLAUDE_CODE)
 
 
 def command_is_safe(command: str) -> bool:
