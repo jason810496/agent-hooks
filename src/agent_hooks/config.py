@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import os
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
@@ -554,6 +555,10 @@ def read_timeout_env(
         value = float(raw_value)
     except ValueError:
         warnings.append(f"Invalid number value for {env_var}: {raw_value!r}. Using fallback.")
+        return default
+
+    if not math.isfinite(value):
+        warnings.append(f"Non-finite number value for {env_var}: {raw_value!r}. Using fallback.")
         return default
 
     if value < 0:

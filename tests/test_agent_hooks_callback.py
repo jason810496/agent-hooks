@@ -1910,6 +1910,16 @@ class TestRuntimeConfig:
             "Negative number value for AGENT_HOOK_NOTIFICATION_TIMEOUT: '-2'. Using fallback.",
         )
 
+    def test_load_runtime_config_ignores_non_finite_notification_timeout(self) -> None:
+        for raw_value in ("nan", "inf", "-inf"):
+            config = load_runtime_config({"AGENT_HOOK_NOTIFICATION_TIMEOUT": raw_value})
+
+            assert config.notification_timeout_seconds == DEFAULT_NOTIFICATION_TIMEOUT_SECONDS
+            assert config.warnings == (
+                f"Non-finite number value for AGENT_HOOK_NOTIFICATION_TIMEOUT: {raw_value!r}. "
+                "Using fallback.",
+            )
+
     def test_load_runtime_config_ignores_invalid_dialog_font_size(self) -> None:
         config = load_runtime_config({"AGENT_HOOK_DIALOG_FONT_SIZE": "0"})
 
