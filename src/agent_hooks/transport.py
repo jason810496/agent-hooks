@@ -413,7 +413,7 @@ class AppleScriptTransport:
         if marker not in stdout:
             return None
 
-        button_label_lines = stdout.split(marker, 1)[1].split(",", 1)[0].splitlines()
+        button_label_lines = stdout.split(marker, 1)[1].splitlines()
         if not button_label_lines:
             return None
         button_label = button_label_lines[0].strip()
