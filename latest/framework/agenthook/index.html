@@ -705,6 +705,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#one-level-dependencies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        One-Level Dependencies
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#running-the-router" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -738,10 +749,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#fallback-processor" class="md-nav__link">
+  <a href="#fallback-handler" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Fallback Processor
+        Fallback Handler
       
     </span>
   </a>
@@ -1176,6 +1187,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../reference/troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../reference/limitations/" class="md-nav__link">
         
   
@@ -1253,6 +1292,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#one-level-dependencies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        One-Level Dependencies
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#running-the-router" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1286,10 +1336,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#fallback-processor" class="md-nav__link">
+  <a href="#fallback-handler" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Fallback Processor
+        Fallback Handler
       
     </span>
   </a>
@@ -1342,6 +1392,10 @@ Think "FastAPI for hook callbacks": you implement business logic against typed e
   <div class="ah-feature-card">
     <h3>Typed event injection</h3>
     <p>Write against <code>PermissionRequestEvent</code>, <code>StopEvent</code>, <code>CallbackRequest</code>, and <code>DisplayTransport</code> instead of raw JSON.</p>
+  </div>
+  <div class="ah-feature-card">
+    <h3>Reusable dependencies</h3>
+    <p>Factor shared context into one-level <code>Depends(...)</code> helpers without dropping down to raw payload plumbing.</p>
   </div>
   <div class="ah-feature-card">
     <h3>Unified schema</h3>
@@ -1406,14 +1460,29 @@ Think "FastAPI for hook callbacks": you implement business logic against typed e
 </span><span id="__span-0-27"><a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>    <span class="p">)</span>
 </span></code></pre></div>
 <p><code>build_permission_response()</code> lets you choose the policy outcome once and have Agent Hooks render the right provider-specific permission response. <code>HookResponse(...)</code> is the generic top-level response model for non-permission events.</p>
+<h2 id="one-level-dependencies">One-Level Dependencies<a class="headerlink" href="#one-level-dependencies" title="Permanent link">&para;</a></h2>
+<p>You can extract reusable handler inputs with <code>Depends(...)</code>:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">agent_hooks</span><span class="w"> </span><span class="kn">import</span> <span class="n">CallbackRequest</span><span class="p">,</span> <span class="n">Depends</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="k">def</span><span class="w"> </span><span class="nf">build_command</span><span class="p">(</span><span class="n">request</span><span class="p">:</span> <span class="n">CallbackRequest</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    <span class="k">return</span> <span class="n">request</span><span class="o">.</span><span class="n">payload</span><span class="o">.</span><span class="n">tool_input</span><span class="o">.</span><span class="n">command</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="nd">@app</span><span class="o">.</span><span class="n">permission</span><span class="p">()</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="k">def</span><span class="w"> </span><span class="nf">permission_handler</span><span class="p">(</span><span class="n">command</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Depends</span><span class="p">(</span><span class="n">build_command</span><span class="p">)):</span>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>    <span class="o">...</span>
+</span></code></pre></div>
+<p>Dependency callables can receive the same built-in injections as route handlers, but nested dependencies are not supported.</p>
+<p>Yield-based dependencies are also supported for resource lifecycles. If a dependency yields one value, that value is injected and the generator is resumed for cleanup after the handler completes.</p>
 <h2 id="running-the-router">Running The Router<a class="headerlink" href="#running-the-router" title="Permanent link">&para;</a></h2>
 <p>Directly:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">agent_hooks.runner</span><span class="w"> </span><span class="kn">import</span> <span class="n">run_callback</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">run_callback</span><span class="p">(</span><span class="n">app</span><span class="p">)</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">agent_hooks.runner</span><span class="w"> </span><span class="kn">import</span> <span class="n">run_callback</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">run_callback</span><span class="p">(</span><span class="n">app</span><span class="p">)</span>
 </span></code></pre></div>
 <p>Through the CLI:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>agent-hooks<span class="w"> </span>run<span class="w"> </span>my_hooks:app<span class="w"> </span>--app-dir<span class="w"> </span>.<span class="w"> </span>--provider<span class="w"> </span>codex
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>agent-hooks<span class="w"> </span>run<span class="w"> </span>my_hooks.py<span class="w"> </span>--app-dir<span class="w"> </span>.<span class="w"> </span>--provider<span class="w"> </span>codex
 </span></code></pre></div>
 <h2 id="route-decorators">Route Decorators<a class="headerlink" href="#route-decorators" title="Permanent link">&para;</a></h2>
 <p><code>AgentHook</code> exposes the following route decorators:</p>
@@ -1436,17 +1505,22 @@ Think "FastAPI for hook callbacks": you implement business logic against typed e
 <li><code>build_permission_response(DialogButton, hook_event)</code> when you want Agent Hooks to generate the correct provider-specific permission payload</li>
 <li><code>AppleScriptDialogResponse</code> as the concrete normalized permission-response model returned by <code>build_permission_response()</code></li>
 </ul>
-<h2 id="fallback-processor">Fallback Processor<a class="headerlink" href="#fallback-processor" title="Permanent link">&para;</a></h2>
-<p><code>AgentHook</code> defaults to <code>fallback_to_default_processor=True</code>.</p>
+<h2 id="fallback-handler">Fallback Handler<a class="headerlink" href="#fallback-handler" title="Permanent link">&para;</a></h2>
+<p><code>AgentHook</code> defaults to <code>fallback_handler=DefaultHookHandler()</code>.</p>
 <p>That means:</p>
 <ul>
 <li>if a route is registered, the route runs</li>
-<li>if a route is missing, the default processor can still handle supported built-in behavior</li>
+<li>if a route is missing, the default fallback handler can still handle supported built-in behavior</li>
 </ul>
-<p>Set <code>fallback_to_default_processor=False</code> if you want your router to fully own the events it registers and return empty responses for everything else.</p>
+<p>Set <code>fallback_handler=None</code> if you want your router to fully own the events it registers and return empty responses for everything else.</p>
+<p>You can also pass your own fallback handler object:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">agent_hooks</span><span class="w"> </span><span class="kn">import</span> <span class="n">AgentHook</span><span class="p">,</span> <span class="n">DefaultHookHandler</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="n">app</span> <span class="o">=</span> <span class="n">AgentHook</span><span class="p">(</span><span class="n">fallback_handler</span><span class="o">=</span><span class="n">DefaultHookHandler</span><span class="p">())</span>
+</span></code></pre></div>
 <h2 id="provider-default">Provider Default<a class="headerlink" href="#provider-default" title="Permanent link">&para;</a></h2>
 <p>You can optionally bind a default provider at router construction time:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">app</span> <span class="o">=</span> <span class="n">AgentHook</span><span class="p">(</span><span class="n">provider</span><span class="o">=</span><span class="n">HookProvider</span><span class="o">.</span><span class="n">CLAUDE_CODE</span><span class="p">)</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">app</span> <span class="o">=</span> <span class="n">AgentHook</span><span class="p">(</span><span class="n">provider</span><span class="o">=</span><span class="n">HookProvider</span><span class="o">.</span><span class="n">CLAUDE_CODE</span><span class="p">)</span>
 </span></code></pre></div>
 <p>That provider becomes the default for parsing and response rendering unless the CLI or runtime config overrides it.</p>
 

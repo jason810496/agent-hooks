@@ -13,7 +13,7 @@
         <link rel="canonical" href="https://jason810496.github.io/agent-hooks/latest/reference/limitations/">
       
       
-        <link rel="prev" href="../logging/">
+        <link rel="prev" href="../troubleshooting/">
       
       
       
@@ -1047,6 +1047,34 @@
                 
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
     
   
   
@@ -1331,6 +1359,7 @@
 <h2 id="framework-limits">Framework Limits<a class="headerlink" href="#framework-limits" title="Permanent link">&para;</a></h2>
 <ul>
 <li>The framework normalizes shared event semantics, but provider-specific raw payload details still matter for advanced cases.</li>
+<li>Route dependencies support only one resolution level. Nested <code>Depends(...)</code> declarations are rejected during route registration.</li>
 <li>If you need raw provider fields that are not lifted into the shared models, you must read <code>payload.raw</code>.</li>
 </ul>
 <h2 id="packaging-limits">Packaging Limits<a class="headerlink" href="#packaging-limits" title="Permanent link">&para;</a></h2>

@@ -1209,6 +1209,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../reference/troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../reference/limitations/" class="md-nav__link">
         
   
@@ -1401,7 +1429,7 @@
 </span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>  -&gt; normalized HookPayload
 </span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>  -&gt; provider middleware
 </span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>  -&gt; app middleware
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>  -&gt; registered route or default processor
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>  -&gt; registered route or fallback handler
 </span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>  -&gt; macOS transport when needed
 </span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>  -&gt; provider-specific stdout JSON
 </span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>  -&gt; application + audit logs
@@ -1425,9 +1453,9 @@
 <p>The callback is dispatched through either:</p>
 <ul>
 <li>a registered <code>AgentHook</code> route</li>
-<li>or the default processor</li>
+<li>or the fallback handler</li>
 </ul>
-<p>The default processor owns the generic built-in permission and notification flow.</p>
+<p>The default fallback handler owns the generic built-in permission and notification flow.</p>
 <h2 id="6-transport">6. Transport<a class="headerlink" href="#6-transport" title="Permanent link">&para;</a></h2>
 <p>When the chosen behavior needs local UI, the transport layer uses AppleScript to:</p>
 <ul>

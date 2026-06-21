@@ -1078,6 +1078,28 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#dialog-controls" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dialog Controls
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#notification-timeout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Notification Timeout
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#project-root-and-paths" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1198,6 +1220,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../limitations/" class="md-nav__link">
         
   
@@ -1268,6 +1318,28 @@
     <span class="md-ellipsis">
       
         AppleScript Control
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dialog-controls" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dialog Controls
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#notification-timeout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Notification Timeout
       
     </span>
   </a>
@@ -1405,6 +1477,39 @@
 <div class="admonition note">
 <p class="admonition-title">Testing mode</p>
 <p>Set <code>AGENT_HOOK_DISABLE_OSASCRIPT=1</code> when you want to validate callback behavior without opening macOS dialogs or notifications.</p>
+</div>
+<h2 id="dialog-controls">Dialog Controls<a class="headerlink" href="#dialog-controls" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>AGENT_HOOK_DIALOG_FONT_SIZE</code></li>
+<li><code>AGENT_HOOK_COMMAND_PREVIEW_MAX_TOTAL_CHARS</code></li>
+<li><code>AGENT_HOOK_COMMAND_PREVIEW_MAX_TOTAL_LINES</code></li>
+<li><code>AGENT_HOOK_COMMAND_PREVIEW_MAX_LINE_CHARS</code></li>
+</ul>
+<p>Set this to a positive point size when you want larger or smaller macOS permission dialog text. Leave it unset to use the default <code>13</code> point dialog font size.</p>
+<p>Set the command preview limits to positive integers when multiline Bash previews should show more or less content. Leave them unset to use the defaults: <code>900</code> total characters, <code>10</code> visible lines, and <code>100</code> characters per line.</p>
+<p>Smoke test the setting with a local permission dialog:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nb">printf</span><span class="w"> </span><span class="s1">&#39;%s\n&#39;</span><span class="w"> </span><span class="s1">&#39;{&quot;hook_event_name&quot;:&quot;PermissionRequest&quot;,&quot;tool_name&quot;:&quot;Bash&quot;,&quot;tool_input&quot;:{&quot;command&quot;:&quot;git status&quot;}}&#39;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span><span class="nv">AGENT_HOOK_DIALOG_FONT_SIZE</span><span class="o">=</span><span class="m">18</span><span class="w"> </span>agent-hooks<span class="w"> </span>callback<span class="w"> </span>--provider<span class="w"> </span>claude-code
+</span></code></pre></div>
+<h2 id="notification-timeout">Notification Timeout<a class="headerlink" href="#notification-timeout" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>AGENT_HOOK_NOTIFICATION_TIMEOUT</code></li>
+</ul>
+<p>Seconds to wait for a notification <code>osascript</code> call before giving up. Notifications
+are posted for <code>Stop</code>, <code>StopFailure</code>, and <code>Notification</code> events. Leave it unset to
+use the default <code>10</code> seconds.</p>
+<p>This is a safeguard: Claude Code waits for <code>Stop</code> hooks to finish, so a notification
+that stalls on a given macOS setup can make the response look blocked. When the
+timeout fires, Agent Hooks abandons the notification, logs the failure, and still
+emits the normal hook response so the agent can continue.</p>
+<p>Set it to <code>0</code> to disable the timeout and wait indefinitely. The timeout applies only
+to notifications. Interactive permission and AskUserQuestion dialogs block on purpose
+while waiting for your answer and are never time-limited.</p>
+<div class="admonition info">
+<p class="admonition-title">Response looks blocked after a turn?</p>
+<p>See <a href="../troubleshooting/#claude-code-response-seems-blocked-after-a-turn-stop-hook">Troubleshooting</a>
+for the macOS-config causes and remedies, including allowing notifications through
+Focus mode.</p>
 </div>
 <h2 id="project-root-and-paths">Project Root And Paths<a class="headerlink" href="#project-root-and-paths" title="Permanent link">&para;</a></h2>
 <ul>

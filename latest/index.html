@@ -1198,6 +1198,34 @@
   
   
     <li class="md-nav__item">
+      <a href="reference/troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="reference/limitations/" class="md-nav__link">
         
   
@@ -1408,7 +1436,7 @@ Agent Hooks gives Claude Code and Codex one local callback layer: a macOS-ready 
 </span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>        <span class="k">return</span> <span class="n">build_permission_response</span><span class="p">(</span><span class="n">DialogButton</span><span class="o">.</span><span class="n">ALLOW_ONCE</span><span class="p">,</span> <span class="n">hook_event</span><span class="p">)</span>
 </span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    <span class="k">return</span> <span class="n">build_permission_response</span><span class="p">(</span><span class="n">DialogButton</span><span class="o">.</span><span class="n">DENY</span><span class="p">,</span> <span class="n">hook_event</span><span class="p">)</span>
 </span></code></pre></div>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>agent-hooks<span class="w"> </span>run<span class="w"> </span>my_hooks:app<span class="w"> </span>--provider<span class="w"> </span>codex
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>agent-hooks<span class="w"> </span>run<span class="w"> </span>my_hooks.py<span class="w"> </span>--provider<span class="w"> </span>codex
 </span></code></pre></div>
 <p><p class="ah-caption">One typed handler can serve Claude Code <code>PermissionRequest</code> and Codex <code>PreToolUse</code> without writing provider-specific schema glue.</p></p>
 </div>
