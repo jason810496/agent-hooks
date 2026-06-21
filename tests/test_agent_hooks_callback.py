@@ -208,6 +208,53 @@ class TestModelPublicModules:
         assert PackageHookResponse is SchemaHookResponse
 
 
+class TestProcessorCompatModule:
+    def test_former_processor_symbols_are_importable(self) -> None:
+        from agent_hooks import processor
+        from agent_hooks.default_handlers import (
+            process_notification_event as handler_process_notification_event,
+        )
+        from agent_hooks.default_handlers import (
+            process_permission_request as handler_process_permission_request,
+        )
+
+        assert callable(processor.process_hook)
+        assert processor.process_permission_request is handler_process_permission_request
+        assert processor.process_notification_event is handler_process_notification_event
+        assert "process_hook" in processor.__all__
+
+    def test_process_hook_returns_default_response_on_parse_error(self) -> None:
+        from agent_hooks.processor import DEFAULT_HOOK_RESPONSE, process_hook
+
+        result = process_hook(read_hook_input(StringIO("{not-json")), FakeTransport())
+
+        assert result.error is not None
+        assert result.display is None
+        assert result.transport_result is None
+        assert result.response is DEFAULT_HOOK_RESPONSE
+
+    def test_process_hook_dispatches_permission_request_to_dialog(self) -> None:
+        from agent_hooks.processor import process_hook
+
+        payload_json = json.dumps(
+            {
+                "hook_event_name": "PermissionRequest",
+                "tool_name": "Bash",
+                "tool_input": {"command": "git status"},
+            }
+        )
+        transport = FakeTransport()
+
+        result = process_hook(read_hook_input(StringIO(payload_json)), transport)
+
+        assert transport.dialog_calls == 1
+        assert result.error is None
+        direct = process_permission_request(
+            read_hook_input(StringIO(payload_json)).payload, FakeTransport()
+        )
+        assert result.response.as_payload() == direct.response.as_payload()
+
+
 class TestReadHookInput:
     def test_invalid_json_returns_parse_error(self) -> None:
         result = read_hook_input(StringIO("{not-json"))
