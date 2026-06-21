@@ -5,6 +5,16 @@
     "aliases": []
   },
   {
+    "version": "0.2.0rc1",
+    "title": "0.2.0rc1",
+    "aliases": [
+      "rc"
+    ],
+    "properties": {
+      "hidden": true
+    }
+  },
+  {
     "version": "0.1.0",
     "title": "0.1.0",
     "aliases": []
@@ -12,9 +22,7 @@
   {
     "version": "0.1.0rc2",
     "title": "0.1.0rc2",
-    "aliases": [
-      "rc"
-    ],
+    "aliases": [],
     "properties": {
       "hidden": true
     }
