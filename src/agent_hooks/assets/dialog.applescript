@@ -73,6 +73,7 @@ end setSubviewFontSize
 
 on setTextFieldAttributedFont(textField, textFont)
     set textValue to textField's stringValue()
+    if textValue is missing value then return
     set textAttributes to current application's NSDictionary's dictionaryWithObject:textFont forKey:(current application's NSFontAttributeName)
     set attributedText to current application's NSMutableAttributedString's alloc()'s initWithString:textValue attributes:textAttributes
     my setCommandBlockFont(attributedText, textValue, textFont)
@@ -173,7 +174,8 @@ end setAlertWidthForVisibleLines
 on findTextFieldWithValue(parentView, textValue)
     repeat with childView in (parentView's subviews())
         if ((childView's isKindOfClass:(current application's NSTextField)) as boolean) then
-            if ((childView's stringValue()) as text) is textValue then
+            set childValue to childView's stringValue()
+            if childValue is not missing value and (childValue as text) is textValue then
                 return childView
             end if
         end if
