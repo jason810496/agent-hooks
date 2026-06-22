@@ -66,7 +66,8 @@ on stackAlertButtonsVertically(alert)
     set bandBottom to missing value
     set bandTop to missing value
     set buttonHeight to 0
-    repeat with theButton in buttonViews
+    repeat with theButtonRef in buttonViews
+        set theButton to contents of theButtonRef
         theButton's sizeToFit()
         set bandRect to (theButton's superview())'s convertRect:(theButton's frame()) toView:contentView
         set rectBottom to (item 2 of item 1 of bandRect) as real
@@ -84,8 +85,9 @@ on stackAlertButtonsVertically(alert)
     -- Reparent the buttons directly onto the content view so they can be positioned
     -- in absolute coordinates, then drop the now-empty native button container.
     set buttonContainer to (item 1 of buttonViews)'s superview()
-    if buttonContainer is not missing value and buttonContainer is not contentView then
-        repeat with theButton in buttonViews
+    if buttonContainer is not missing value and not (buttonContainer's isEqual:contentView) then
+        repeat with theButtonRef in buttonViews
+            set theButton to contents of theButtonRef
             theButton's removeFromSuperview()
             contentView's addSubview:theButton
         end repeat
@@ -97,7 +99,8 @@ on stackAlertButtonsVertically(alert)
     -- near-full-height background or visual-effect view with its own mask so it keeps
     -- resizing to fill the grown window instead of leaving a blank strip at the bottom.
     if extraHeight is greater than 0 then
-        repeat with childView in (contentView's subviews())
+        repeat with childViewRef in (contentView's subviews())
+            set childView to contents of childViewRef
             if ((item 2 of item 2 of (childView's frame())) as real) < (contentHeight - 5) then
                 -- Add NSViewMinYMargin (8) so the view stays anchored to the top,
                 -- without dropping its other flags (e.g. NSViewWidthSizable).
@@ -118,14 +121,16 @@ on stackAlertButtonsVertically(alert)
     -- background or effect view whose bottom sits at 0 would otherwise collapse the
     -- centering.
     set floorContainer to contentView
-    repeat with childView in (contentView's subviews())
+    repeat with childViewRef in (contentView's subviews())
+        set childView to contents of childViewRef
         if ((childView's isKindOfClass:(current application's NSVisualEffectView)) as boolean) then
             set floorContainer to childView
             exit repeat
         end if
     end repeat
     set contentFloor to missing value
-    repeat with childView in (floorContainer's subviews())
+    repeat with childViewRef in (floorContainer's subviews())
+        set childView to contents of childViewRef
         if not ((buttonArray's containsObject:childView) as boolean) then
             set childRect to floorContainer's convertRect:(childView's frame()) toView:contentView
             if ((item 2 of item 2 of childRect) as real) < (contentHeight - 5) then
