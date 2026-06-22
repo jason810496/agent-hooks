@@ -986,6 +986,28 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#permission-picker" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Permission Picker
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#standard-dialog-fallback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Standard Dialog Fallback
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#askuserquestion-picker" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1360,6 +1382,28 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#permission-picker" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Permission Picker
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#standard-dialog-fallback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Standard Dialog Fallback
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#askuserquestion-picker" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1562,14 +1606,36 @@
 <li>error notifications for <code>StopFailure</code></li>
 </ul>
 <h2 id="permission-handling">Permission Handling<a class="headerlink" href="#permission-handling" title="Permanent link">&para;</a></h2>
-<p>Claude permission responses support three dialog choices:</p>
+<p>Claude permission requests carry <code>permission_suggestions</code> describing the session
+rules the user could persist (for example "this exact command", "all <code>git *</code>
+commands", or "all <code>Bash</code> commands"). Agent Hooks renders each suggestion as its own
+choice instead of collapsing them behind a single <code>Always Allow</code> button.</p>
+<h3 id="permission-picker">Permission Picker<a class="headerlink" href="#permission-picker" title="Permanent link">&para;</a></h3>
+<p>When Claude supplies at least one <code>permission_suggestion</code>, the built-in app shows a
+native <code>choose from list</code> picker whose choices are:</p>
 <ul>
-<li><code>Deny</code></li>
-<li><code>Allow Once</code></li>
-<li><code>Always Allow</code></li>
+<li><code>Allow once</code> - allow the call without persisting a rule</li>
+<li>one entry per suggestion, labeled with the rule(s) it would persist, shown exactly
+  as Claude sent them (for example <code>Bash(git *)</code>, <code>Edit(src/**), Write(src/**)</code>, or a
+  non-rule scope such as <code>mode: acceptEdits</code>)</li>
 </ul>
-<p><code>Always Allow</code> is session-scoped. When Claude supplies <code>permission_suggestions</code>, Agent Hooks converts them into <code>updatedPermissions</code> with destination <code>session</code>.</p>
-<p>That means the built-in Claude flow can preview and apply session rules without inventing its own permission format.</p>
+<p>Every entry below <code>Allow once</code> is an always-allow choice, so the labels carry no
+redundant "Always allow" prefix. The picker's buttons are <code>Select</code> and <code>Deny</code>.
+Selecting a rule entry returns <code>behavior: "allow"</code> with <code>updatedPermissions</code>
+containing only the chosen suggestion, scoped to destination <code>session</code>. Selecting
+<code>Allow once</code> allows the call with no <code>updatedPermissions</code>. Pressing <code>Deny</code> (or
+dismissing the picker) denies the call.</p>
+<p>Because only the selected suggestion is persisted, the user can pick the exact scope
+they want rather than accepting every offered rule at once.</p>
+<h3 id="standard-dialog-fallback">Standard Dialog Fallback<a class="headerlink" href="#standard-dialog-fallback" title="Permanent link">&para;</a></h3>
+<p>When the picker is unavailable - non-macOS hosts, <code>osascript</code> disabled via
+<code>AGENT_HOOK_DISABLE_OSASCRIPT=1</code>, or a picker transport failure - Agent Hooks falls
+back to the standard <code>Deny</code> / <code>Allow Once</code> / <code>Always Allow</code> dialog. The dialog message
+lists every suggestion rule so the full scope stays visible, and its session-scoped
+<code>Always Allow</code> applies all offered suggestions. Permission requests that arrive without
+any <code>permission_suggestions</code> use this same dialog.</p>
+<p>That means the built-in Claude flow can preview and apply session rules without
+inventing its own permission format.</p>
 <h3 id="askuserquestion-picker">AskUserQuestion Picker<a class="headerlink" href="#askuserquestion-picker" title="Permanent link">&para;</a></h3>
 <p>When Claude Code calls the built-in <code>AskUserQuestion</code> tool, Agent Hooks intercepts the request and shows a native macOS picker for each question instead of the standard <code>Allow Once</code> / <code>Always Allow</code> / <code>Deny</code> dialog. The picker:</p>
 <ul>
