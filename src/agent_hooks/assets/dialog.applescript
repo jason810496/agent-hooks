@@ -16,8 +16,9 @@ on run argv
     alert's setMessageText:theTitle
     alert's setInformativeText:theMessage
     -- NSAlert anchors the first-added button on the right. Add buttons in reverse
-    -- so the on-screen order (left to right) matches buttonList order, and let
-    -- NSAlert lay them out natively to avoid overlap and hit-test mismatches.
+    -- so that once stackAlertButtonsVertically lays them out as a vertical column
+    -- (placing the first-added button at the bottom), the visible top-to-bottom
+    -- order matches buttonList order.
     repeat with i from (count of buttonList) to 1 by -1
         alert's addButtonWithTitle:((item i of buttonList) as text)
     end repeat
@@ -27,6 +28,7 @@ on run argv
     my clearButtonDefaultState(alert)
     alert's layout()
     my setAlertWidthForVisibleLines(alert, theMessage, theFontSize)
+    my stackAlertButtonsVertically(alert)
 
     set responseCode to (alert's runModal()) as integer
     -- Buttons were added in reverse, so map the return code back to buttonList.
@@ -37,6 +39,130 @@ on run argv
     set buttonIndex to (count of buttonList) - addedIndex + 1
     return "button returned:" & (item buttonIndex of buttonList)
 end run
+
+on stackAlertButtonsVertically(alert)
+    -- Lay the buttons out as a single vertical column centered in the dialog. NSAlert
+    -- packs buttons into a horizontal row by default, which overlaps once the dialog
+    -- is widened to fit a long message and the larger dialog font. Stacking top to
+    -- bottom removes that failure mode regardless of dialog width or button count.
+    -- Keep the raw NSArray for membership tests and coerce a native AppleScript list
+    -- for the index/count operations below (reliable across AppleScript-ObjC versions).
+    set buttonArray to alert's buttons()
+    set buttonViews to buttonArray as list
+    set buttonCount to (count of buttonViews)
+    if buttonCount is less than 2 then return
+
+    set theWindow to alert's |window|()
+    set contentView to theWindow's contentView()
+    set contentViewFrame to contentView's frame()
+    set contentWidth to (item 1 of item 2 of contentViewFrame) as real
+    set contentHeight to (item 2 of item 2 of contentViewFrame) as real
+
+    set gap to 8
+    set sideMargin to 20
+
+    -- Measure where the current button band sits and how tall the tallest button is,
+    -- in content-view coordinates, before anything is moved.
+    set bandBottom to missing value
+    set bandTop to missing value
+    set buttonHeight to 0
+    repeat with theButtonRef in buttonViews
+        set theButton to contents of theButtonRef
+        theButton's sizeToFit()
+        set bandRect to (theButton's superview())'s convertRect:(theButton's frame()) toView:contentView
+        set rectBottom to (item 2 of item 1 of bandRect) as real
+        set rectHeight to (item 2 of item 2 of bandRect) as real
+        set rectTop to rectBottom + rectHeight
+        if bandBottom is missing value or rectBottom < bandBottom then set bandBottom to rectBottom
+        if bandTop is missing value or rectTop > bandTop then set bandTop to rectTop
+        if rectHeight > buttonHeight then set buttonHeight to rectHeight
+    end repeat
+
+    set columnHeight to (buttonCount * buttonHeight) + ((buttonCount - 1) * gap)
+    set extraHeight to columnHeight - (bandTop - bandBottom)
+    if extraHeight is less than 0 then set extraHeight to 0
+
+    -- Reparent the buttons directly onto the content view so they can be positioned
+    -- in absolute coordinates, then drop the now-empty native button container.
+    set buttonContainer to (item 1 of buttonViews)'s superview()
+    if buttonContainer is not missing value and not (buttonContainer's isEqual:contentView) then
+        repeat with theButtonRef in buttonViews
+            set theButton to contents of theButtonRef
+            theButton's removeFromSuperview()
+            contentView's addSubview:theButton
+        end repeat
+        buttonContainer's removeFromSuperview()
+    end if
+
+    -- Pin the existing content to the top so growing the window adds room at the
+    -- bottom for the taller column rather than stretching the message area. Leave any
+    -- near-full-height background or visual-effect view with its own mask so it keeps
+    -- resizing to fill the grown window instead of leaving a blank strip at the bottom.
+    if extraHeight is greater than 0 then
+        repeat with childViewRef in (contentView's subviews())
+            set childView to contents of childViewRef
+            if ((item 2 of item 2 of (childView's frame())) as real) < (contentHeight - 5) then
+                -- Add NSViewMinYMargin (8) so the view stays anchored to the top,
+                -- without dropping its other flags (e.g. NSViewWidthSizable).
+                set currentMask to (childView's autoresizingMask()) as integer
+                if (currentMask div 8) mod 2 is 0 then childView's setAutoresizingMask:(currentMask + 8)
+            end if
+        end repeat
+        set windowFrame to theWindow's frame()
+        set grownFrame to current application's NSMakeRect((item 1 of item 1 of windowFrame), ((item 2 of item 1 of windowFrame) - extraHeight), (item 1 of item 2 of windowFrame), ((item 2 of item 2 of windowFrame) + extraHeight))
+        theWindow's setFrame:grownFrame display:false
+    end if
+
+    -- Find the lowest piece of content (the divider NSAlert draws above the buttons,
+    -- or the message text) so the column can be centered in the space between it and
+    -- the bottom of the dialog. Gather the content view's own subviews and, when
+    -- NSAlert nests the icon/text inside an NSVisualEffectView, that container's
+    -- subviews too, so neither a direct accessory view nor the nested content is
+    -- missed. Each candidate is measured in content-view coordinates via its own
+    -- superview. Skip the action buttons and any near-full-height background/effect
+    -- view whose bottom sits at 0, which would otherwise collapse the centering.
+    set candidateViews to (contentView's subviews()) as list
+    repeat with childViewRef in (contentView's subviews())
+        set childView to contents of childViewRef
+        if ((childView's isKindOfClass:(current application's NSVisualEffectView)) as boolean) then
+            set candidateViews to candidateViews & ((childView's subviews()) as list)
+        end if
+    end repeat
+    set contentFloor to missing value
+    repeat with childViewRef in candidateViews
+        set childView to contents of childViewRef
+        if not ((buttonArray's containsObject:childView) as boolean) then
+            set childRect to (childView's superview())'s convertRect:(childView's frame()) toView:contentView
+            if ((item 2 of item 2 of childRect) as real) < (contentHeight - 5) then
+                set childBottom to (item 2 of item 1 of childRect) as real
+                if contentFloor is missing value or childBottom < contentFloor then set contentFloor to childBottom
+            end if
+        end if
+    end repeat
+    if contentFloor is missing value then set contentFloor to (bandBottom + columnHeight + gap)
+
+    -- Center the column vertically in that space, and center each button horizontally
+    -- on the dialog's mid-line. buttonViews is in reverse on-screen order (added in
+    -- reverse), so placing item 1 at the bottom makes the visible top-to-bottom order
+    -- match buttonList. Each button keeps its own fitted width so the centering
+    -- survives the relayout NSAlert performs while presenting the dialog.
+    set regionTop to contentFloor - gap
+    set columnBottom to bandBottom
+    if (regionTop - bandBottom) > columnHeight then set columnBottom to bandBottom + (((regionTop - bandBottom) - columnHeight) / 2)
+    set centerX to contentWidth / 2
+    set maxButtonWidth to contentWidth - (sideMargin * 2)
+    repeat with buttonIndex from 1 to buttonCount
+        set theButton to item buttonIndex of buttonViews
+        theButton's sizeToFit()
+        set fittedWidth to (item 1 of item 2 of (theButton's frame())) as real
+        if fittedWidth > maxButtonWidth then set fittedWidth to maxButtonWidth
+        set buttonX to centerX - (fittedWidth / 2)
+        if buttonX is less than sideMargin then set buttonX to sideMargin
+        set buttonY to columnBottom + ((buttonIndex - 1) * (buttonHeight + gap))
+        theButton's setFrame:(current application's NSMakeRect(buttonX, buttonY, fittedWidth, buttonHeight))
+        theButton's setAutoresizingMask:0
+    end repeat
+end stackAlertButtonsVertically
 
 on setAlertIcon(alert, theIconPath)
     if theIconPath is "" then
