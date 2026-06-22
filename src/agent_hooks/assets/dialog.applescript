@@ -115,24 +115,24 @@ on stackAlertButtonsVertically(alert)
 
     -- Find the lowest piece of content (the divider NSAlert draws above the buttons,
     -- or the message text) so the column can be centered in the space between it and
-    -- the bottom of the dialog. On some macOS versions NSAlert nests the icon and text
-    -- inside an NSVisualEffectView, so descend into that container when present and
-    -- measure in content-view coordinates. Still skip any near-full-height view: a
-    -- background or effect view whose bottom sits at 0 would otherwise collapse the
-    -- centering.
-    set floorContainer to contentView
+    -- the bottom of the dialog. Gather the content view's own subviews and, when
+    -- NSAlert nests the icon/text inside an NSVisualEffectView, that container's
+    -- subviews too, so neither a direct accessory view nor the nested content is
+    -- missed. Each candidate is measured in content-view coordinates via its own
+    -- superview. Skip the action buttons and any near-full-height background/effect
+    -- view whose bottom sits at 0, which would otherwise collapse the centering.
+    set candidateViews to (contentView's subviews()) as list
     repeat with childViewRef in (contentView's subviews())
         set childView to contents of childViewRef
         if ((childView's isKindOfClass:(current application's NSVisualEffectView)) as boolean) then
-            set floorContainer to childView
-            exit repeat
+            set candidateViews to candidateViews & ((childView's subviews()) as list)
         end if
     end repeat
     set contentFloor to missing value
-    repeat with childViewRef in (floorContainer's subviews())
+    repeat with childViewRef in candidateViews
         set childView to contents of childViewRef
         if not ((buttonArray's containsObject:childView) as boolean) then
-            set childRect to floorContainer's convertRect:(childView's frame()) toView:contentView
+            set childRect to (childView's superview())'s convertRect:(childView's frame()) toView:contentView
             if ((item 2 of item 2 of childRect) as real) < (contentHeight - 5) then
                 set childBottom to (item 2 of item 1 of childRect) as real
                 if contentFloor is missing value or childBottom < contentFloor then set contentFloor to childBottom
