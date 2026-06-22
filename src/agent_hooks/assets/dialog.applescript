@@ -90,10 +90,14 @@ on stackAlertButtonsVertically(alert)
     end if
 
     -- Pin the existing content to the top so growing the window adds room at the
-    -- bottom for the taller column rather than stretching the message area.
+    -- bottom for the taller column rather than stretching the message area. Leave any
+    -- near-full-height background or visual-effect view with its own mask so it keeps
+    -- resizing to fill the grown window instead of leaving a blank strip at the bottom.
     if extraHeight is greater than 0 then
         repeat with childView in (contentView's subviews())
-            childView's setAutoresizingMask:8 -- NSViewMinYMargin: stay anchored to the top
+            if ((item 2 of item 2 of (childView's frame())) as real) < (contentHeight - 5) then
+                childView's setAutoresizingMask:8 -- NSViewMinYMargin: stay anchored to the top
+            end if
         end repeat
         set windowFrame to theWindow's frame()
         set grownFrame to current application's NSMakeRect((item 1 of item 1 of windowFrame), ((item 2 of item 1 of windowFrame) - extraHeight), (item 1 of item 2 of windowFrame), ((item 2 of item 2 of windowFrame) + extraHeight))
@@ -102,15 +106,24 @@ on stackAlertButtonsVertically(alert)
 
     -- Find the lowest piece of content (the divider NSAlert draws above the buttons,
     -- or the message text) so the column can be centered in the space between it and
-    -- the bottom of the dialog. Skip any near-full-height background or visual-effect
-    -- view some macOS versions add: its bottom sits at 0, which would drag the floor
-    -- down and collapse the centering.
-    set contentFloor to missing value
+    -- the bottom of the dialog. On some macOS versions NSAlert nests the icon and text
+    -- inside an NSVisualEffectView, so descend into that container when present and
+    -- measure in content-view coordinates. Still skip any near-full-height view: a
+    -- background or effect view whose bottom sits at 0 would otherwise collapse the
+    -- centering.
+    set floorContainer to contentView
     repeat with childView in (contentView's subviews())
+        if ((childView's isKindOfClass:(current application's NSVisualEffectView)) as boolean) then
+            set floorContainer to childView
+            exit repeat
+        end if
+    end repeat
+    set contentFloor to missing value
+    repeat with childView in (floorContainer's subviews())
         if not ((childView's isKindOfClass:(current application's NSButton)) as boolean) then
-            set childFrame to childView's frame()
-            if ((item 2 of item 2 of childFrame) as real) < (contentHeight - 5) then
-                set childBottom to (item 2 of item 1 of childFrame) as real
+            set childRect to floorContainer's convertRect:(childView's frame()) toView:contentView
+            if ((item 2 of item 2 of childRect) as real) < (contentHeight - 5) then
+                set childBottom to (item 2 of item 1 of childRect) as real
                 if contentFloor is missing value or childBottom < contentFloor then set contentFloor to childBottom
             end if
         end if
