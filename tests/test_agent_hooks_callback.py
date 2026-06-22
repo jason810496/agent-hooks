@@ -743,6 +743,29 @@ class TestPermissionChoiceFlow:
         assert dialog.choices[1].label == "mode: acceptEdits"
         assert dialog.choices[1].suggestion_index == 0
 
+    def test_build_permission_choice_dialog_disambiguates_duplicate_labels(self) -> None:
+        payload = build_hook_payload(
+            {
+                "hook_event_name": "PermissionRequest",
+                "tool_name": "Bash",
+                "tool_input": {"command": "git status"},
+                "permission_suggestions": [
+                    {"id": "dup-1", "rules": [{"toolName": "Bash", "ruleContent": "git *"}]},
+                    {"id": "dup-2", "rules": [{"toolName": "Bash", "ruleContent": "git *"}]},
+                ],
+            }
+        )
+
+        dialog = build_permission_choice_dialog(payload)
+
+        # Identical rules must produce distinct picker labels so the selected text maps
+        # back to the correct suggestion index rather than always the first occurrence.
+        labels = [choice.label for choice in dialog.choices]
+        assert labels == ["Allow once", "Bash(git *)", "Bash(git *) (2)"]
+        assert len(set(labels)) == len(labels)
+        assert dialog.choices[1].suggestion_index == 0
+        assert dialog.choices[2].suggestion_index == 1
+
     def test_is_permission_choice_payload_requires_claude_suggestions(self) -> None:
         assert is_permission_choice_payload(self._payload()) is True
 

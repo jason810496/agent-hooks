@@ -271,7 +271,17 @@ class AppleScriptTransport:
         ):
             index = self._parse_choice_index(stdout, len(dialog.choices))
             if index is None:
-                return PermissionChoiceDialogResult(choice=None, transport=transport)
+                # An "OK" status with a missing or out-of-range index means the picker
+                # output was corrupted. Treat it as a transport failure so the caller
+                # falls back to the standard dialog instead of silently denying.
+                failed = AppleScriptResult(
+                    status=TransportStatus.FAILED,
+                    invocation=transport.invocation,
+                    returncode=transport.returncode,
+                    stdout=transport.stdout,
+                    stderr=f"unparseable picker index: {stdout!r}",
+                )
+                return PermissionChoiceDialogResult(choice=None, transport=failed)
             return PermissionChoiceDialogResult(choice=dialog.choices[index], transport=transport)
 
         if stdout.startswith(CHOOSE_FROM_LIST_ERROR_PREFIX):

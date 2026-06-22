@@ -157,12 +157,21 @@ def build_permission_choice_dialog(payload: HookPayload) -> PermissionChoiceDial
     choices: list[PermissionChoice] = [
         PermissionChoice(label="Allow once", button=DialogButton.ALLOW_ONCE)
     ]
+    # ``choose from list`` returns only the selected label text, and the picker maps
+    # that text back to a choice by first match. Identical labels would all resolve to
+    # the first occurrence and persist the wrong suggestion, so disambiguate genuine
+    # duplicates with a counted suffix while leaving unique labels untouched.
+    label_counts: dict[str, int] = {"Allow once": 1}
     for index, suggestion in enumerate(build_permission_suggestions(payload.raw)):
         # Show the rule exactly as Claude suggested it. Every entry below "Allow once"
         # is an always-allow choice, so a per-entry "Always allow" prefix is redundant.
+        base_label = describe_permission_suggestion(suggestion)
+        count = label_counts.get(base_label, 0) + 1
+        label_counts[base_label] = count
+        label = base_label if count == 1 else f"{base_label} ({count})"
         choices.append(
             PermissionChoice(
-                label=describe_permission_suggestion(suggestion),
+                label=label,
                 button=DialogButton.ALWAYS_ALLOW,
                 suggestion_index=index,
             )

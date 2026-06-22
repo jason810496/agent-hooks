@@ -644,7 +644,7 @@ def test_show_permission_choice_dialog_reports_dismissal(monkeypatch) -> None:
     assert result.transport.status == TransportStatus.SUCCEEDED
 
 
-def test_show_permission_choice_dialog_ignores_out_of_range_index(monkeypatch) -> None:
+def test_show_permission_choice_dialog_marks_out_of_range_index_as_failed(monkeypatch) -> None:
     transport = AppleScriptTransport(skip_osascript=False)
 
     def fake_run_osascript(
@@ -663,8 +663,12 @@ def test_show_permission_choice_dialog_ignores_out_of_range_index(monkeypatch) -
 
     result = transport.show_permission_choice_dialog(_permission_choice_spec())
 
+    # An "OK" status with an out-of-range index is corrupted output, not a dismissal.
+    # It must surface as a transport failure so the caller falls back to the standard
+    # dialog instead of silently denying the request.
     assert result.choice is None
-    assert result.transport.status == TransportStatus.SUCCEEDED
+    assert result.transport.status == TransportStatus.FAILED
+    assert "unparseable picker index" in result.transport.stderr
 
 
 def test_show_permission_choice_dialog_marks_script_error_as_failed(monkeypatch) -> None:
