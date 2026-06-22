@@ -45,9 +45,10 @@ on stackAlertButtonsVertically(alert)
     -- packs buttons into a horizontal row by default, which overlaps once the dialog
     -- is widened to fit a long message and the larger dialog font. Stacking top to
     -- bottom removes that failure mode regardless of dialog width or button count.
-    -- Coerce the returned NSArray to a native AppleScript list so the index/count
-    -- operations below are reliable across AppleScript-ObjC versions.
-    set buttonViews to (alert's buttons()) as list
+    -- Keep the raw NSArray for membership tests and coerce a native AppleScript list
+    -- for the index/count operations below (reliable across AppleScript-ObjC versions).
+    set buttonArray to alert's buttons()
+    set buttonViews to buttonArray as list
     set buttonCount to (count of buttonViews)
     if buttonCount is less than 2 then return
 
@@ -98,7 +99,10 @@ on stackAlertButtonsVertically(alert)
     if extraHeight is greater than 0 then
         repeat with childView in (contentView's subviews())
             if ((item 2 of item 2 of (childView's frame())) as real) < (contentHeight - 5) then
-                childView's setAutoresizingMask:8 -- NSViewMinYMargin: stay anchored to the top
+                -- Add NSViewMinYMargin (8) so the view stays anchored to the top,
+                -- without dropping its other flags (e.g. NSViewWidthSizable).
+                set currentMask to (childView's autoresizingMask()) as integer
+                if (currentMask div 8) mod 2 is 0 then childView's setAutoresizingMask:(currentMask + 8)
             end if
         end repeat
         set windowFrame to theWindow's frame()
@@ -122,7 +126,7 @@ on stackAlertButtonsVertically(alert)
     end repeat
     set contentFloor to missing value
     repeat with childView in (floorContainer's subviews())
-        if not ((childView's isKindOfClass:(current application's NSButton)) as boolean) then
+        if not ((buttonArray's containsObject:childView) as boolean) then
             set childRect to floorContainer's convertRect:(childView's frame()) toView:contentView
             if ((item 2 of item 2 of childRect) as real) < (contentHeight - 5) then
                 set childBottom to (item 2 of item 1 of childRect) as real
