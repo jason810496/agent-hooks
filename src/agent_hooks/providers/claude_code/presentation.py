@@ -118,13 +118,16 @@ def format_permission_suggestions_preview(payload: HookPayload) -> str:
     """
     lines: list[str] = []
     for suggestion in build_permission_suggestions(payload.raw):
-        if suggestion.rules:
-            lines.extend(
-                f"  - {label}"
-                for label in (describe_permission_rule(rule) for rule in suggestion.rules)
-                if label
-            )
+        rule_labels = [
+            label
+            for label in (describe_permission_rule(rule) for rule in suggestion.rules)
+            if label
+        ]
+        if rule_labels:
+            lines.extend(f"  - {label}" for label in rule_labels)
         else:
+            # No rules, or rules that all render empty: fall back to the suggestion-level
+            # description (mode / directories / id) so the suggestion still appears.
             lines.append(f"  - {describe_permission_suggestion(suggestion)}")
     if not lines:
         return ""
@@ -160,15 +163,20 @@ def build_permission_choice_dialog(payload: HookPayload) -> PermissionChoiceDial
     # ``choose from list`` returns only the selected label text, and the picker maps
     # that text back to a choice by first match. Identical labels would all resolve to
     # the first occurrence and persist the wrong suggestion, so disambiguate genuine
-    # duplicates with a counted suffix while leaving unique labels untouched.
-    label_counts: dict[str, int] = {"Allow once": 1}
+    # duplicates with a counted suffix while leaving unique labels untouched. The suffix
+    # is bumped until the rendered label is unique among labels already used, so a
+    # synthetic suffix can never collide with another suggestion's real label.
+    used_labels: set[str] = {"Allow once"}
     for index, suggestion in enumerate(build_permission_suggestions(payload.raw)):
         # Show the rule exactly as Claude suggested it. Every entry below "Allow once"
         # is an always-allow choice, so a per-entry "Always allow" prefix is redundant.
         base_label = describe_permission_suggestion(suggestion)
-        count = label_counts.get(base_label, 0) + 1
-        label_counts[base_label] = count
-        label = base_label if count == 1 else f"{base_label} ({count})"
+        label = base_label
+        suffix = 1
+        while label in used_labels:
+            suffix += 1
+            label = f"{base_label} ({suffix})"
+        used_labels.add(label)
         choices.append(
             PermissionChoice(
                 label=label,

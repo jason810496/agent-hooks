@@ -443,6 +443,34 @@ class TestPresentation:
             "  - GCP"
         )
 
+    def test_permission_dialog_preview_falls_back_when_rules_render_empty(self) -> None:
+        payload = build_hook_payload(
+            {
+                "hook_event_name": "PermissionRequest",
+                "tool_name": "Bash",
+                "tool_input": {"command": "x"},
+                # Rules present but blank: the preview must still surface the suggestion
+                # via its non-rule fields instead of dropping it entirely.
+                "permission_suggestions": [
+                    {
+                        "id": "s",
+                        "rules": [{"toolName": "", "ruleContent": ""}],
+                        "mode": "acceptEdits",
+                    }
+                ],
+            }
+        )
+
+        dialog = provider_client.build_permission_dialog(payload)
+
+        assert dialog.message == (
+            "Tool: Bash\n"
+            "Command: x\n"
+            "\n"
+            '"Always Allow" adds session rules:\n'
+            "  - mode: acceptEdits"
+        )
+
     def test_permission_dialog_skips_question_preview_for_other_tools(self) -> None:
         payload = build_hook_payload(
             {
@@ -765,6 +793,29 @@ class TestPermissionChoiceFlow:
         assert len(set(labels)) == len(labels)
         assert dialog.choices[1].suggestion_index == 0
         assert dialog.choices[2].suggestion_index == 1
+
+    def test_build_permission_choice_dialog_suffix_does_not_collide(self) -> None:
+        payload = build_hook_payload(
+            {
+                "hook_event_name": "PermissionRequest",
+                "tool_name": "Bash",
+                "tool_input": {"command": "x"},
+                # The first label already ends in the suffix a later duplicate would
+                # synthesize, so a naive per-base counter would re-collide on "dup (2)".
+                "permission_suggestions": [
+                    {"id": "dup (2)"},
+                    {"id": "dup"},
+                    {"id": "dup"},
+                ],
+            }
+        )
+
+        dialog = build_permission_choice_dialog(payload)
+
+        labels = [choice.label for choice in dialog.choices]
+        assert labels == ["Allow once", "dup (2)", "dup", "dup (3)"]
+        assert len(set(labels)) == len(labels)
+        assert [choice.suggestion_index for choice in dialog.choices] == [None, 0, 1, 2]
 
     def test_is_permission_choice_payload_requires_claude_suggestions(self) -> None:
         assert is_permission_choice_payload(self._payload()) is True
