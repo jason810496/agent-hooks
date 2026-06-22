@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from agent_hooks.enums import DialogButton, HookEventName, PermissionBehavior, PermissionDestination
+from agent_hooks.models.schemas.display import PermissionChoice
 from agent_hooks.models.schemas.hooks import HookPayload
 from agent_hooks.models.schemas.json_types import JsonObject, JsonValue
 from agent_hooks.models.schemas.permissions import PermissionDecision, PermissionUpdate
@@ -52,6 +53,49 @@ def build_permission_response(
     )
 
 
+def build_permission_choice_response(
+    payload: HookPayload,
+    choice: PermissionChoice | None,
+) -> AppleScriptDialogResponse:
+    """Build the Claude permission response for one picker selection.
+
+    :param payload: Normalized permission payload.
+    :type payload: HookPayload
+    :param choice: Selected picker choice, or ``None`` when the picker was dismissed.
+    :type choice: PermissionChoice | None
+    :return: A deny response when dismissed, an allow-once response for the plain
+        allow choice, or an allow response that persists only the chosen suggestion
+        as a session rule.
+    """
+    if choice is None:
+        return build_permission_response(DialogButton.DENY, payload)
+
+    if choice.button != DialogButton.ALWAYS_ALLOW or choice.suggestion_index is None:
+        return build_permission_response(choice.button, payload)
+
+    suggestions = build_permission_suggestions(payload.raw)
+    if not 0 <= choice.suggestion_index < len(suggestions):
+        # The picker and the payload disagree on the suggestion set; allow the call
+        # without persisting a rule rather than persisting the wrong one.
+        return build_permission_response(DialogButton.ALLOW_ONCE, payload)
+
+    selected = suggestions[choice.suggestion_index]
+    updates = (
+        PermissionUpdate(source=selected.raw, destination=PermissionDestination.SESSION),
+    )
+    return AppleScriptDialogResponse(
+        button=DialogButton.ALWAYS_ALLOW,
+        payload=payload,
+        hook_specific_output=HookSpecificOutput(
+            hook_event_name=HookEventName.PERMISSION_REQUEST,
+            decision=PermissionDecision(
+                behavior=PermissionBehavior.ALLOW,
+                updated_permissions=updates,
+            ),
+        ),
+    )
+
+
 def build_permission_suggestions(raw_payload: JsonObject) -> tuple[PermissionSuggestion, ...]:
     """Normalize Claude permission suggestions from the raw payload."""
     suggestions: list[PermissionSuggestion] = []
@@ -79,15 +123,47 @@ def build_permission_rules(suggestion_raw: JsonObject) -> tuple[PermissionRule, 
     return tuple(rules)
 
 
-def first_permission_rule(payload: HookPayload) -> PermissionRule | None:
-    """Return the first available Claude permission rule preview."""
-    suggestions = build_permission_suggestions(payload.raw)
-    if not suggestions:
-        return None
-    first_suggestion = suggestions[0]
-    if not first_suggestion.rules:
-        return None
-    return first_suggestion.rules[0]
+def describe_permission_rule(rule: PermissionRule) -> str:
+    """Return a short human label for one permission rule.
+
+    :param rule: Normalized permission rule.
+    :type rule: PermissionRule
+    :return: ``ToolName(ruleContent)`` when both are present, the tool name or rule
+        content alone when only one is present, or an empty string otherwise.
+    """
+    tool_name = rule.tool_name.strip()
+    rule_content = rule.rule_content.strip()
+    if tool_name and rule_content:
+        return f"{tool_name}({rule_content})"
+    return tool_name or rule_content
+
+
+def describe_permission_suggestion(suggestion: PermissionSuggestion) -> str:
+    """Return a short human label describing what one suggestion would persist.
+
+    :param suggestion: Normalized permission suggestion.
+    :type suggestion: PermissionSuggestion
+    :return: A joined rule summary, or a label derived from non-rule suggestion
+        fields (permission mode, directories, or id) when no rules are present.
+    """
+    rule_labels = [
+        label for label in (describe_permission_rule(rule) for rule in suggestion.rules) if label
+    ]
+    if rule_labels:
+        return ", ".join(rule_labels)
+
+    raw = suggestion.raw
+    mode = coerce_text(raw.get("mode")).strip()
+    if mode:
+        return f"mode: {mode}"
+    directories = raw.get("directories")
+    if isinstance(directories, list):
+        directory_labels = [coerce_text(directory).strip() for directory in directories]
+        directory_labels = [label for label in directory_labels if label]
+        if directory_labels:
+            return "directories: " + ", ".join(directory_labels)
+    suggestion_id = coerce_text(raw.get("id")).strip()
+    return suggestion_id or "this suggestion"
 
 
 def build_ask_user_question_response(

@@ -60,11 +60,17 @@ from agent_hooks.models.response import (
 from agent_hooks.models.schemas.display import (
     AskUserQuestionDialogResult,
     AskUserQuestionDialogSpec,
+    PermissionChoiceDialogResult,
+    PermissionChoiceDialogSpec,
 )
 from agent_hooks.models.schemas.hooks import HookPayload, ToolInput
 from agent_hooks.parsing import build_hook_payload, read_hook_input
 from agent_hooks.providers import provider_client
-from agent_hooks.providers.claude_code.presentation import is_ask_user_question_payload
+from agent_hooks.providers.claude_code.presentation import (
+    build_permission_choice_dialog,
+    is_ask_user_question_payload,
+    is_permission_choice_payload,
+)
 from agent_hooks.providers.codex.middleware import (
     CODEX_EXECPOLICY_RULES_ENV_VAR,
     run_codex_execpolicy_check,
@@ -81,6 +87,7 @@ class FakeTransport:
         notification_result: AppleScriptResult | None = None,
         dialog_result: DialogResult | None = None,
         ask_user_question_result: AskUserQuestionDialogResult | None = None,
+        permission_choice_result: PermissionChoiceDialogResult | None = None,
     ) -> None:
         self._notification_result = notification_result or AppleScriptResult(
             status=TransportStatus.SUCCEEDED,
@@ -102,11 +109,21 @@ class FakeTransport:
                 skipped_reason="not-configured",
             ),
         )
+        self._permission_choice_result = permission_choice_result or PermissionChoiceDialogResult(
+            choice=None,
+            transport=AppleScriptResult(
+                status=TransportStatus.SKIPPED,
+                invocation=AppleScriptInvocation.PERMISSION_CHOICE,
+                skipped_reason="not-configured",
+            ),
+        )
         self.notification_calls = 0
         self.dialog_calls = 0
         self.ask_user_question_calls = 0
+        self.permission_choice_calls = 0
         self.dialogs: list[object] = []
         self.ask_user_question_dialogs: list[object] = []
+        self.permission_choice_dialogs: list[object] = []
 
     def send_notification(self, notification: object) -> AppleScriptResult:
         self.notification_calls += 1
@@ -121,6 +138,11 @@ class FakeTransport:
         self.ask_user_question_calls += 1
         self.ask_user_question_dialogs.append(dialog)
         return self._ask_user_question_result
+
+    def show_permission_choice_dialog(self, dialog: object) -> PermissionChoiceDialogResult:
+        self.permission_choice_calls += 1
+        self.permission_choice_dialogs.append(dialog)
+        return self._permission_choice_result
 
 
 def build_runtime_config(
@@ -293,7 +315,7 @@ class TestReadHookInput:
 
 
 class TestPresentation:
-    def test_permission_dialog_includes_session_rule_preview(self) -> None:
+    def test_permission_dialog_lists_every_session_rule(self) -> None:
         payload = build_hook_payload(
             {
                 "hook_event_name": "PermissionRequest",
@@ -301,9 +323,13 @@ class TestPresentation:
                 "tool_input": {"command": "git status"},
                 "permission_suggestions": [
                     {
-                        "id": "suggestion-1",
+                        "id": "suggestion-exact",
+                        "rules": [{"toolName": "Bash", "ruleContent": "git status"}],
+                    },
+                    {
+                        "id": "suggestion-glob",
                         "rules": [{"toolName": "Bash", "ruleContent": "git *"}],
-                    }
+                    },
                 ],
             }
         )
@@ -311,7 +337,14 @@ class TestPresentation:
         dialog = provider_client.build_permission_dialog(payload)
 
         assert dialog.default_button == DialogButton.ALLOW_ONCE
-        assert '"Always Allow" adds session rule: Bash(git *)' in dialog.message
+        assert dialog.message == (
+            "Tool: Bash\n"
+            "Command: git status\n"
+            "\n"
+            '"Always Allow" adds session rules:\n'
+            "  - Bash(git status)\n"
+            "  - Bash(git *)"
+        )
 
     def test_codex_permission_dialog_uses_two_buttons(self) -> None:
         payload = build_hook_payload(
@@ -408,6 +441,34 @@ class TestPresentation:
             "Q2 [Deployment] (multi-select): Which deployment platforms?\n"
             "  - AWS: Extensive ecosystem\n"
             "  - GCP"
+        )
+
+    def test_permission_dialog_preview_falls_back_when_rules_render_empty(self) -> None:
+        payload = build_hook_payload(
+            {
+                "hook_event_name": "PermissionRequest",
+                "tool_name": "Bash",
+                "tool_input": {"command": "x"},
+                # Rules present but blank: the preview must still surface the suggestion
+                # via its non-rule fields instead of dropping it entirely.
+                "permission_suggestions": [
+                    {
+                        "id": "s",
+                        "rules": [{"toolName": "", "ruleContent": ""}],
+                        "mode": "acceptEdits",
+                    }
+                ],
+            }
+        )
+
+        dialog = provider_client.build_permission_dialog(payload)
+
+        assert dialog.message == (
+            "Tool: Bash\n"
+            "Command: x\n"
+            "\n"
+            '"Always Allow" adds session rules:\n'
+            "  - mode: acceptEdits"
         )
 
     def test_permission_dialog_skips_question_preview_for_other_tools(self) -> None:
@@ -659,6 +720,265 @@ class TestAskUserQuestionFlow:
 
         assert is_ask_user_question_payload(claude_payload) is True
         assert is_ask_user_question_payload(codex_payload) is False
+
+
+class TestPermissionChoiceFlow:
+    def _payload(self) -> HookPayload:
+        return build_hook_payload(
+            {
+                "hook_event_name": "PermissionRequest",
+                "tool_name": "Bash",
+                "tool_input": {"command": "git status"},
+                "permission_suggestions": [
+                    {
+                        "id": "suggestion-exact",
+                        "rules": [{"toolName": "Bash", "ruleContent": "git status"}],
+                    },
+                    {
+                        "id": "suggestion-glob",
+                        "rules": [{"toolName": "Bash", "ruleContent": "git *"}],
+                    },
+                ],
+            }
+        )
+
+    def test_build_permission_choice_dialog_lists_each_suggestion(self) -> None:
+        dialog = build_permission_choice_dialog(self._payload())
+
+        assert dialog.title == "Claude Code — Permission Request"
+        assert dialog.message == "Tool: Bash\nCommand: git status"
+        assert dialog.default_index == 0
+        assert [(choice.label, choice.button, choice.suggestion_index) for choice in dialog.choices] == [
+            ("Allow once", DialogButton.ALLOW_ONCE, None),
+            ("Bash(git status)", DialogButton.ALWAYS_ALLOW, 0),
+            ("Bash(git *)", DialogButton.ALWAYS_ALLOW, 1),
+        ]
+
+    def test_build_permission_choice_dialog_describes_non_rule_suggestion(self) -> None:
+        payload = build_hook_payload(
+            {
+                "hook_event_name": "PermissionRequest",
+                "tool_name": "Bash",
+                "tool_input": {"command": "git status"},
+                "permission_suggestions": [
+                    {"id": "suggestion-mode", "mode": "acceptEdits"},
+                ],
+            }
+        )
+
+        dialog = build_permission_choice_dialog(payload)
+
+        assert dialog.choices[1].label == "mode: acceptEdits"
+        assert dialog.choices[1].suggestion_index == 0
+
+    def test_build_permission_choice_dialog_disambiguates_duplicate_labels(self) -> None:
+        payload = build_hook_payload(
+            {
+                "hook_event_name": "PermissionRequest",
+                "tool_name": "Bash",
+                "tool_input": {"command": "git status"},
+                "permission_suggestions": [
+                    {"id": "dup-1", "rules": [{"toolName": "Bash", "ruleContent": "git *"}]},
+                    {"id": "dup-2", "rules": [{"toolName": "Bash", "ruleContent": "git *"}]},
+                ],
+            }
+        )
+
+        dialog = build_permission_choice_dialog(payload)
+
+        # Identical rules must produce distinct picker labels so the selected text maps
+        # back to the correct suggestion index rather than always the first occurrence.
+        labels = [choice.label for choice in dialog.choices]
+        assert labels == ["Allow once", "Bash(git *)", "Bash(git *) (2)"]
+        assert len(set(labels)) == len(labels)
+        assert dialog.choices[1].suggestion_index == 0
+        assert dialog.choices[2].suggestion_index == 1
+
+    def test_build_permission_choice_dialog_suffix_does_not_collide(self) -> None:
+        payload = build_hook_payload(
+            {
+                "hook_event_name": "PermissionRequest",
+                "tool_name": "Bash",
+                "tool_input": {"command": "x"},
+                # The first label already ends in the suffix a later duplicate would
+                # synthesize, so a naive per-base counter would re-collide on "dup (2)".
+                "permission_suggestions": [
+                    {"id": "dup (2)"},
+                    {"id": "dup"},
+                    {"id": "dup"},
+                ],
+            }
+        )
+
+        dialog = build_permission_choice_dialog(payload)
+
+        labels = [choice.label for choice in dialog.choices]
+        assert labels == ["Allow once", "dup (2)", "dup", "dup (3)"]
+        assert len(set(labels)) == len(labels)
+        assert [choice.suggestion_index for choice in dialog.choices] == [None, 0, 1, 2]
+
+    def test_is_permission_choice_payload_requires_claude_suggestions(self) -> None:
+        assert is_permission_choice_payload(self._payload()) is True
+
+        no_suggestions = build_hook_payload(
+            {
+                "hook_event_name": "PermissionRequest",
+                "tool_name": "Bash",
+                "tool_input": {"command": "ls"},
+            }
+        )
+        assert is_permission_choice_payload(no_suggestions) is False
+
+        codex_payload = build_hook_payload(
+            {
+                "hook_event_name": "PreToolUse",
+                "tool_name": "Bash",
+                "tool_input": {"command": "git status"},
+                "permission_suggestions": [
+                    {"id": "x", "rules": [{"toolName": "Bash", "ruleContent": "git *"}]},
+                ],
+            },
+            provider=HookProvider.CODEX,
+        )
+        assert is_permission_choice_payload(codex_payload) is False
+
+        ask_user_question_payload = build_hook_payload(
+            {
+                "hook_event_name": "PermissionRequest",
+                "tool_name": "AskUserQuestion",
+                "tool_input": {"questions": [{"question": "Pick", "options": [{"label": "A"}]}]},
+                "permission_suggestions": [
+                    {"id": "y", "rules": [{"toolName": "AskUserQuestion", "ruleContent": "*"}]},
+                ],
+            }
+        )
+        assert is_permission_choice_payload(ask_user_question_payload) is False
+
+    def test_handle_permission_choice_persists_only_selected_suggestion(self) -> None:
+        payload = self._payload()
+        selected = build_permission_choice_dialog(payload).choices[2]
+        transport = FakeTransport(
+            permission_choice_result=PermissionChoiceDialogResult(
+                choice=selected,
+                transport=AppleScriptResult(
+                    status=TransportStatus.SUCCEEDED,
+                    invocation=AppleScriptInvocation.PERMISSION_CHOICE,
+                ),
+            ),
+        )
+
+        result = process_permission_request(payload, transport)
+
+        assert transport.permission_choice_calls == 1
+        assert transport.dialog_calls == 0
+        assert isinstance(transport.permission_choice_dialogs[0], PermissionChoiceDialogSpec)
+        decision = result.response.as_payload()["hookSpecificOutput"]["decision"]
+        assert decision == {
+            "behavior": "allow",
+            "updatedPermissions": [
+                {
+                    "id": "suggestion-glob",
+                    "rules": [{"toolName": "Bash", "ruleContent": "git *"}],
+                    "destination": "session",
+                }
+            ],
+        }
+
+    def test_handle_permission_choice_allow_once_persists_nothing(self) -> None:
+        payload = self._payload()
+        selected = build_permission_choice_dialog(payload).choices[0]
+        transport = FakeTransport(
+            permission_choice_result=PermissionChoiceDialogResult(
+                choice=selected,
+                transport=AppleScriptResult(
+                    status=TransportStatus.SUCCEEDED,
+                    invocation=AppleScriptInvocation.PERMISSION_CHOICE,
+                ),
+            ),
+        )
+
+        result = process_permission_request(payload, transport)
+
+        decision = result.response.as_payload()["hookSpecificOutput"]["decision"]
+        assert decision == {"behavior": "allow"}
+
+    def test_handle_permission_choice_dismissed_returns_deny(self) -> None:
+        payload = self._payload()
+        transport = FakeTransport(
+            permission_choice_result=PermissionChoiceDialogResult(
+                choice=None,
+                transport=AppleScriptResult(
+                    status=TransportStatus.SUCCEEDED,
+                    invocation=AppleScriptInvocation.PERMISSION_CHOICE,
+                    stdout="CANCELLED",
+                ),
+            ),
+        )
+
+        result = process_permission_request(payload, transport)
+
+        hook_output = result.response.as_payload()["hookSpecificOutput"]
+        assert hook_output["decision"] == {"behavior": "deny"}
+        assert hook_output["permissionDecisionReason"] == "Permission denied by local user."
+
+    def test_handle_permission_choice_falls_back_when_skipped(self) -> None:
+        payload = self._payload()
+        transport = FakeTransport()
+
+        result = process_permission_request(payload, transport)
+
+        assert transport.permission_choice_calls == 1
+        assert transport.dialog_calls == 1
+        assert isinstance(result.display, DialogSpec)
+
+    def test_handle_permission_choice_falls_back_when_failed_preserves_error(self) -> None:
+        payload = self._payload()
+        transport = FakeTransport(
+            permission_choice_result=PermissionChoiceDialogResult(
+                choice=None,
+                transport=AppleScriptResult(
+                    status=TransportStatus.FAILED,
+                    invocation=AppleScriptInvocation.PERMISSION_CHOICE,
+                    stderr="ERROR:-1:boom",
+                ),
+            ),
+        )
+
+        result = process_permission_request(payload, transport)
+
+        assert transport.permission_choice_calls == 1
+        assert transport.dialog_calls == 1
+        assert isinstance(result.display, DialogSpec)
+        assert result.error == "ERROR:-1:boom"
+
+    def test_handle_permission_choice_falls_back_when_transport_lacks_picker(self) -> None:
+        class PickerlessTransport:
+            def __init__(self) -> None:
+                self.dialog_calls = 0
+
+            def send_notification(self, notification: object) -> AppleScriptResult:
+                return AppleScriptResult(
+                    status=TransportStatus.SUCCEEDED,
+                    invocation=AppleScriptInvocation.NOTIFICATION,
+                )
+
+            def show_dialog(self, dialog: object) -> DialogResult:
+                self.dialog_calls += 1
+                return DialogResult(
+                    button=DialogButton.ALLOW_ONCE,
+                    transport=AppleScriptResult(
+                        status=TransportStatus.SUCCEEDED,
+                        invocation=AppleScriptInvocation.DIALOG,
+                        stdout="button returned:Allow Once",
+                    ),
+                )
+
+        transport = PickerlessTransport()
+
+        result = process_permission_request(self._payload(), transport)
+
+        assert transport.dialog_calls == 1
+        assert isinstance(result.display, DialogSpec)
 
 
 class TestPermissionResponse:

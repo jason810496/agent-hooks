@@ -18,12 +18,15 @@ from agent_hooks.models.schemas.display import (
     AskUserQuestionDialogSpec,
     AskUserQuestionEntry,
     AskUserQuestionOption,
+    PermissionChoice,
+    PermissionChoiceDialogSpec,
 )
 from agent_hooks.transport import (
     AppleScriptTransport,
     get_ask_user_question_script,
     get_dialog_script,
     get_notification_script,
+    get_permission_choice_script,
     resolve_dialog_icon_path,
 )
 
@@ -537,6 +540,160 @@ def test_show_ask_user_question_dialog_marks_script_error_as_failed(monkeypatch)
     # A script-reported error must surface as a transport failure (not a cancellation)
     # so the caller falls back instead of denying.
     assert result.answers is None
+    assert result.transport.status == TransportStatus.FAILED
+    assert "ERROR:" in result.transport.stderr
+
+
+def _permission_choice_spec() -> PermissionChoiceDialogSpec:
+    return PermissionChoiceDialogSpec(
+        title="Claude Code — Permission Request",
+        message="Tool: Bash\nCommand: git status",
+        choices=(
+            PermissionChoice(label="Allow once", button=DialogButton.ALLOW_ONCE),
+            PermissionChoice(
+                label="Bash(git status)",
+                button=DialogButton.ALWAYS_ALLOW,
+                suggestion_index=0,
+            ),
+            PermissionChoice(
+                label="Bash(git *)",
+                button=DialogButton.ALWAYS_ALLOW,
+                suggestion_index=1,
+            ),
+        ),
+        default_index=0,
+    )
+
+
+def test_permission_choice_script_compiles_on_macos(tmp_path: Path) -> None:
+    if shutil.which("osacompile") is None:
+        pytest.skip("osacompile is not available")
+
+    script_path = tmp_path / "permission_choice.applescript"
+    compiled_path = tmp_path / "permission_choice.scpt"
+    script_path.write_text(get_permission_choice_script(), encoding="utf-8")
+
+    completed = subprocess.run(
+        ["osacompile", "-o", str(compiled_path), str(script_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_show_permission_choice_dialog_returns_selected_choice(monkeypatch) -> None:
+    transport = AppleScriptTransport(skip_osascript=False)
+    captured_arguments: list[str] | None = None
+
+    def fake_run_osascript(
+        *,
+        invocation: AppleScriptInvocation,
+        arguments: list[str],
+        script: str,
+    ) -> AppleScriptResult:
+        nonlocal captured_arguments
+        captured_arguments = arguments
+        # The picker returns the selected option's 1-based index behind an "OK" line.
+        return AppleScriptResult(
+            status=TransportStatus.SUCCEEDED,
+            invocation=invocation,
+            stdout="OK\n3",
+        )
+
+    monkeypatch.setattr(transport, "_run_osascript", fake_run_osascript)
+
+    result = transport.show_permission_choice_dialog(_permission_choice_spec())
+
+    assert captured_arguments == [
+        "Claude Code — Permission Request",
+        "Tool: Bash\nCommand: git status",
+        "Allow once",
+        "Allow once",
+        "Bash(git status)",
+        "Bash(git *)",
+    ]
+    assert result.choice is not None
+    assert result.choice.button == DialogButton.ALWAYS_ALLOW
+    assert result.choice.suggestion_index == 1
+    assert result.cancelled is False
+
+
+def test_show_permission_choice_dialog_reports_dismissal(monkeypatch) -> None:
+    transport = AppleScriptTransport(skip_osascript=False)
+
+    def fake_run_osascript(
+        *,
+        invocation: AppleScriptInvocation,
+        arguments: list[str],
+        script: str,
+    ) -> AppleScriptResult:
+        return AppleScriptResult(
+            status=TransportStatus.SUCCEEDED,
+            invocation=invocation,
+            stdout="CANCELLED",
+        )
+
+    monkeypatch.setattr(transport, "_run_osascript", fake_run_osascript)
+
+    result = transport.show_permission_choice_dialog(_permission_choice_spec())
+
+    assert result.cancelled is True
+    assert result.choice is None
+    assert result.transport.status == TransportStatus.SUCCEEDED
+
+
+def test_show_permission_choice_dialog_marks_out_of_range_index_as_failed(monkeypatch) -> None:
+    transport = AppleScriptTransport(skip_osascript=False)
+
+    def fake_run_osascript(
+        *,
+        invocation: AppleScriptInvocation,
+        arguments: list[str],
+        script: str,
+    ) -> AppleScriptResult:
+        return AppleScriptResult(
+            status=TransportStatus.SUCCEEDED,
+            invocation=invocation,
+            stdout="OK\n9",
+        )
+
+    monkeypatch.setattr(transport, "_run_osascript", fake_run_osascript)
+
+    result = transport.show_permission_choice_dialog(_permission_choice_spec())
+
+    # An "OK" status with an out-of-range index is corrupted output, not a dismissal.
+    # It must surface as a transport failure so the caller falls back to the standard
+    # dialog instead of silently denying the request.
+    assert result.choice is None
+    assert result.transport.status == TransportStatus.FAILED
+    assert "unparseable picker index" in result.transport.stderr
+
+
+def test_show_permission_choice_dialog_marks_script_error_as_failed(monkeypatch) -> None:
+    transport = AppleScriptTransport(skip_osascript=False)
+
+    def fake_run_osascript(
+        *,
+        invocation: AppleScriptInvocation,
+        arguments: list[str],
+        script: str,
+    ) -> AppleScriptResult:
+        return AppleScriptResult(
+            status=TransportStatus.SUCCEEDED,
+            invocation=invocation,
+            returncode=0,
+            stdout="ERROR:-128:User cancelled.",
+        )
+
+    monkeypatch.setattr(transport, "_run_osascript", fake_run_osascript)
+
+    result = transport.show_permission_choice_dialog(_permission_choice_spec())
+
+    # A script-reported error must surface as a transport failure (not a dismissal) so
+    # the caller falls back to the standard dialog instead of denying.
+    assert result.choice is None
     assert result.transport.status == TransportStatus.FAILED
     assert "ERROR:" in result.transport.stderr
 
