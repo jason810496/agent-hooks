@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agent-hooks"
-version = "0.2.0rc1"
+version = "0.2.0"
 description = "One local callback layer for Claude Code and Codex: a macOS-ready CLI for native permission dialogs and notifications, plus a FastAPI-like Python framework"
 readme = "README.md"
 requires-python = ">=3.10"
