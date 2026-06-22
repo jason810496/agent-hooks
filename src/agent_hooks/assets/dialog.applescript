@@ -45,7 +45,9 @@ on stackAlertButtonsVertically(alert)
     -- packs buttons into a horizontal row by default, which overlaps once the dialog
     -- is widened to fit a long message and the larger dialog font. Stacking top to
     -- bottom removes that failure mode regardless of dialog width or button count.
-    set buttonViews to alert's buttons()
+    -- Coerce the returned NSArray to a native AppleScript list so the index/count
+    -- operations below are reliable across AppleScript-ObjC versions.
+    set buttonViews to (alert's buttons()) as list
     set buttonCount to (count of buttonViews)
     if buttonCount is less than 2 then return
 
