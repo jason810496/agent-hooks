@@ -51,7 +51,9 @@ on stackAlertButtonsVertically(alert)
 
     set theWindow to alert's |window|()
     set contentView to theWindow's contentView()
-    set contentWidth to (item 1 of item 2 of (contentView's frame())) as real
+    set contentViewFrame to contentView's frame()
+    set contentWidth to (item 1 of item 2 of contentViewFrame) as real
+    set contentHeight to (item 2 of item 2 of contentViewFrame) as real
 
     set gap to 8
     set sideMargin to 20
@@ -79,7 +81,7 @@ on stackAlertButtonsVertically(alert)
     -- Reparent the buttons directly onto the content view so they can be positioned
     -- in absolute coordinates, then drop the now-empty native button container.
     set buttonContainer to (item 1 of buttonViews)'s superview()
-    if buttonContainer is not contentView then
+    if buttonContainer is not missing value and buttonContainer is not contentView then
         repeat with theButton in buttonViews
             theButton's removeFromSuperview()
             contentView's addSubview:theButton
@@ -100,12 +102,17 @@ on stackAlertButtonsVertically(alert)
 
     -- Find the lowest piece of content (the divider NSAlert draws above the buttons,
     -- or the message text) so the column can be centered in the space between it and
-    -- the bottom of the dialog.
+    -- the bottom of the dialog. Skip any near-full-height background or visual-effect
+    -- view some macOS versions add: its bottom sits at 0, which would drag the floor
+    -- down and collapse the centering.
     set contentFloor to missing value
     repeat with childView in (contentView's subviews())
         if not ((childView's isKindOfClass:(current application's NSButton)) as boolean) then
-            set childBottom to (item 2 of item 1 of (childView's frame())) as real
-            if contentFloor is missing value or childBottom < contentFloor then set contentFloor to childBottom
+            set childFrame to childView's frame()
+            if ((item 2 of item 2 of childFrame) as real) < (contentHeight - 5) then
+                set childBottom to (item 2 of item 1 of childFrame) as real
+                if contentFloor is missing value or childBottom < contentFloor then set contentFloor to childBottom
+            end if
         end if
     end repeat
     if contentFloor is missing value then set contentFloor to (bandBottom + columnHeight + gap)
