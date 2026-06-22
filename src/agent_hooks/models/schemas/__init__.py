@@ -12,6 +12,9 @@ from agent_hooks.models.schemas.display import (
     DialogSpec,
     DisplaySpec,
     NotificationSpec,
+    PermissionChoice,
+    PermissionChoiceDialogResult,
+    PermissionChoiceDialogSpec,
 )
 from agent_hooks.models.schemas.hooks import HookInput, HookPayload, ToolInput
 from agent_hooks.models.schemas.json_types import JsonObject, JsonScalar, JsonValue
@@ -51,6 +54,9 @@ __all__ = [
     "JsonScalar",
     "JsonValue",
     "NotificationSpec",
+    "PermissionChoice",
+    "PermissionChoiceDialogResult",
+    "PermissionChoiceDialogSpec",
     "PermissionDecision",
     "PermissionUpdate",
     "ResponseAuditLogRecord",

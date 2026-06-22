@@ -105,15 +105,42 @@ The built-in callback app gives Claude Code:
 
 ## Permission Handling
 
-Claude permission responses support three dialog choices:
+Claude permission requests carry `permission_suggestions` describing the session
+rules the user could persist (for example "this exact command", "all `git *`
+commands", or "all `Bash` commands"). Agent Hooks renders each suggestion as its own
+choice instead of collapsing them behind a single `Always Allow` button.
 
-- `Deny`
-- `Allow Once`
-- `Always Allow`
+### Permission Picker
 
-`Always Allow` is session-scoped. When Claude supplies `permission_suggestions`, Agent Hooks converts them into `updatedPermissions` with destination `session`.
+When Claude supplies at least one `permission_suggestion`, the built-in app shows a
+native `choose from list` picker whose choices are:
 
-That means the built-in Claude flow can preview and apply session rules without inventing its own permission format.
+- `Allow once` - allow the call without persisting a rule
+- one entry per suggestion, labeled with the rule(s) it would persist, shown exactly
+  as Claude sent them (for example `Bash(git *)`, `Edit(src/**), Write(src/**)`, or a
+  non-rule scope such as `mode: acceptEdits`)
+
+Every entry below `Allow once` is an always-allow choice, so the labels carry no
+redundant "Always allow" prefix. The picker's buttons are `Select` and `Deny`.
+Selecting a rule entry returns `behavior: "allow"` with `updatedPermissions`
+containing only the chosen suggestion, scoped to destination `session`. Selecting
+`Allow once` allows the call with no `updatedPermissions`. Pressing `Deny` (or
+dismissing the picker) denies the call.
+
+Because only the selected suggestion is persisted, the user can pick the exact scope
+they want rather than accepting every offered rule at once.
+
+### Standard Dialog Fallback
+
+When the picker is unavailable - non-macOS hosts, `osascript` disabled via
+`AGENT_HOOK_DISABLE_OSASCRIPT=1`, or a picker transport failure - Agent Hooks falls
+back to the standard `Deny` / `Allow Once` / `Always Allow` dialog. The dialog message
+lists every suggestion rule so the full scope stays visible, and its session-scoped
+`Always Allow` applies all offered suggestions. Permission requests that arrive without
+any `permission_suggestions` use this same dialog.
+
+That means the built-in Claude flow can preview and apply session rules without
+inventing its own permission format.
 
 ### AskUserQuestion Picker
 

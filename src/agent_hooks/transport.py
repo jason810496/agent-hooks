@@ -20,16 +20,25 @@ from agent_hooks.models.schemas.display import (
     DialogResult,
     DialogSpec,
     NotificationSpec,
+    PermissionChoiceDialogResult,
+    PermissionChoiceDialogSpec,
 )
 
 ASSETS_PATH: Final = Path(__file__).resolve().parent / "assets"
 NOTIFICATION_SCRIPT_PATH: Final = ASSETS_PATH / "notification.applescript"
 DIALOG_SCRIPT_PATH: Final = ASSETS_PATH / "dialog.applescript"
 ASK_USER_QUESTION_SCRIPT_PATH: Final = ASSETS_PATH / "ask_user_question.applescript"
+PERMISSION_CHOICE_SCRIPT_PATH: Final = ASSETS_PATH / "permission_choice.applescript"
 OSASCRIPT_LOGO_PATH: Final = ASSETS_PATH / "osascript-logo.png"
-ASK_USER_QUESTION_OK_MARKER: Final = "OK"
-ASK_USER_QUESTION_ERROR_PREFIX: Final = "ERROR:"
-ASK_USER_QUESTION_CANCELLED_MARKER: Final = "CANCELLED"
+# The AskUserQuestion and permission pickers share the ``choose from list`` wire
+# protocol: an "OK" status line followed by the selected 1-based option indices, the
+# "CANCELLED" sentinel for a dismissed picker, or an "ERROR:" line for a script fault.
+CHOOSE_FROM_LIST_OK_MARKER: Final = "OK"
+CHOOSE_FROM_LIST_ERROR_PREFIX: Final = "ERROR:"
+CHOOSE_FROM_LIST_CANCELLED_MARKER: Final = "CANCELLED"
+ASK_USER_QUESTION_OK_MARKER: Final = CHOOSE_FROM_LIST_OK_MARKER
+ASK_USER_QUESTION_ERROR_PREFIX: Final = CHOOSE_FROM_LIST_ERROR_PREFIX
+ASK_USER_QUESTION_CANCELLED_MARKER: Final = CHOOSE_FROM_LIST_CANCELLED_MARKER
 
 
 def _read_applescript(path: Path) -> str:
@@ -55,6 +64,12 @@ def get_ask_user_question_script() -> str:
     return _read_applescript(ASK_USER_QUESTION_SCRIPT_PATH)
 
 
+@cache
+def get_permission_choice_script() -> str:
+    """Return the cached packaged permission-picker AppleScript source."""
+    return _read_applescript(PERMISSION_CHOICE_SCRIPT_PATH)
+
+
 def __getattr__(name: str) -> str:
     """Return lazily loaded script source for legacy module constants."""
     if name == "NOTIFICATION_SCRIPT":
@@ -63,6 +78,8 @@ def __getattr__(name: str) -> str:
         return get_dialog_script()
     if name == "ASK_USER_QUESTION_SCRIPT":
         return get_ask_user_question_script()
+    if name == "PERMISSION_CHOICE_SCRIPT":
+        return get_permission_choice_script()
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -102,6 +119,17 @@ class DisplayTransport(Protocol):
         :param dialog: AskUserQuestion dialog specification.
         :type dialog: AskUserQuestionDialogSpec
         :return: Collected answers and transport metadata.
+        """
+        ...
+
+    def show_permission_choice_dialog(
+        self, dialog: PermissionChoiceDialogSpec
+    ) -> PermissionChoiceDialogResult:
+        """Show the permission picker and capture the selected choice.
+
+        :param dialog: Permission picker specification.
+        :type dialog: PermissionChoiceDialogSpec
+        :return: Selected choice and transport metadata.
         """
         ...
 
@@ -202,6 +230,94 @@ class AppleScriptTransport:
             answers[entry.question] = ", ".join(selections)
         return AskUserQuestionDialogResult(answers=answers, transport=last_transport)
 
+    def show_permission_choice_dialog(
+        self, dialog: PermissionChoiceDialogSpec
+    ) -> PermissionChoiceDialogResult:
+        """Show the permission picker and capture the selected choice.
+
+        :param dialog: Permission picker specification.
+        :type dialog: PermissionChoiceDialogSpec
+        :return: Selected choice and transport metadata. ``choice`` is ``None`` when
+            the picker is dismissed, skipped, or fails so the caller can fall back to
+            the standard permission dialog.
+        """
+        if not dialog.choices:
+            return PermissionChoiceDialogResult(
+                choice=None,
+                transport=AppleScriptResult(
+                    status=TransportStatus.SKIPPED,
+                    invocation=AppleScriptInvocation.PERMISSION_CHOICE,
+                    skipped_reason="no-choices",
+                ),
+            )
+
+        default_label = self._resolve_default_choice_label(dialog)
+        transport = self._run_osascript(
+            invocation=AppleScriptInvocation.PERMISSION_CHOICE,
+            arguments=[
+                dialog.title or "Permission Request",
+                dialog.message,
+                default_label,
+                *(choice.label for choice in dialog.choices),
+            ],
+            script=get_permission_choice_script(),
+        )
+        if transport.status != TransportStatus.SUCCEEDED:
+            return PermissionChoiceDialogResult(choice=None, transport=transport)
+
+        stdout = transport.stdout.strip()
+        if stdout == CHOOSE_FROM_LIST_OK_MARKER or stdout.startswith(
+            f"{CHOOSE_FROM_LIST_OK_MARKER}\n"
+        ):
+            index = self._parse_choice_index(stdout, len(dialog.choices))
+            if index is None:
+                return PermissionChoiceDialogResult(choice=None, transport=transport)
+            return PermissionChoiceDialogResult(choice=dialog.choices[index], transport=transport)
+
+        if stdout.startswith(CHOOSE_FROM_LIST_ERROR_PREFIX):
+            # The AppleScript caught an internal error and exited zero. Surface it as a
+            # transport failure so the caller falls back instead of treating it as a deny.
+            failed = AppleScriptResult(
+                status=TransportStatus.FAILED,
+                invocation=transport.invocation,
+                returncode=transport.returncode,
+                stdout=transport.stdout,
+                stderr=stdout,
+            )
+            return PermissionChoiceDialogResult(choice=None, transport=failed)
+
+        # Anything else (including the bare "CANCELLED" sentinel) is a dismissed picker.
+        return PermissionChoiceDialogResult(choice=None, transport=transport)
+
+    def _resolve_default_choice_label(self, dialog: PermissionChoiceDialogSpec) -> str:
+        """Return the label of the picker's preselected choice.
+
+        :param dialog: Permission picker specification with at least one choice.
+        :type dialog: PermissionChoiceDialogSpec
+        :return: The configured default choice label, falling back to the first choice.
+        """
+        if 0 <= dialog.default_index < len(dialog.choices):
+            return dialog.choices[dialog.default_index].label
+        return dialog.choices[0].label
+
+    def _parse_choice_index(self, stdout: str, choice_count: int) -> int | None:
+        """Map the picker status payload back to a 0-based choice index.
+
+        :param stdout: Stripped picker stdout beginning with the "OK" status line.
+        :type stdout: str
+        :param choice_count: Number of choices offered, for bounds checking.
+        :type choice_count: int
+        :return: The 0-based selected index, or ``None`` when it is missing or invalid.
+        """
+        payload = stdout.partition("\n")[2].strip()
+        try:
+            index = int(payload)
+        except ValueError:
+            return None
+        if 1 <= index <= choice_count:
+            return index - 1
+        return None
+
     def _run_ask_user_question(
         self, entry: AskUserQuestionEntry
     ) -> tuple[AppleScriptResult, list[str] | None]:
@@ -236,14 +352,14 @@ class AppleScriptTransport:
         # Encoding indices (not label text) means an option label may contain any
         # characters — including the cancel sentinel or a newline — without being
         # misread as a delimiter or control value.
-        if stdout == ASK_USER_QUESTION_OK_MARKER or stdout.startswith(
-            f"{ASK_USER_QUESTION_OK_MARKER}\n"
+        if stdout == CHOOSE_FROM_LIST_OK_MARKER or stdout.startswith(
+            f"{CHOOSE_FROM_LIST_OK_MARKER}\n"
         ):
             payload = stdout.partition("\n")[2]
             selections = self._resolve_selection_indices(payload, entry.options)
             return transport, selections
 
-        if stdout.startswith(ASK_USER_QUESTION_ERROR_PREFIX):
+        if stdout.startswith(CHOOSE_FROM_LIST_ERROR_PREFIX):
             # The AppleScript caught an internal error and exited zero. Surface it as a
             # transport failure so callers fall back instead of treating it as a cancel.
             failed = AppleScriptResult(

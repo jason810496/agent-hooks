@@ -13,10 +13,13 @@ from agent_hooks.providers import provider_client
 from agent_hooks.providers.claude_code.permissions import (
     build_ask_user_question_cancel_response,
     build_ask_user_question_response,
+    build_permission_choice_response,
 )
 from agent_hooks.providers.claude_code.presentation import (
     build_ask_user_question_dialog,
+    build_permission_choice_dialog,
     is_ask_user_question_payload,
+    is_permission_choice_payload,
 )
 from agent_hooks.transport import DisplayTransport
 
@@ -116,6 +119,15 @@ class DefaultHookHandler:
             if ask_result is not None:
                 return ask_result
 
+        if is_permission_choice_payload(normalized_payload):
+            choice_result, current_error = self.handle_permission_choice(
+                normalized_payload,
+                transport,
+                current_error=current_error,
+            )
+            if choice_result is not None:
+                return choice_result
+
         dialog = provider_client.build_permission_dialog(normalized_payload)
         dialog_result = transport.show_dialog(dialog)
         response = (
@@ -128,6 +140,52 @@ class DefaultHookHandler:
             transport_result=dialog_result.transport,
             response=response,
             error=self.transport_error(dialog_result.transport, current_error),
+        )
+
+    def handle_permission_choice(
+        self,
+        payload: HookPayload,
+        transport: DisplayTransport,
+        *,
+        current_error: str | None = None,
+    ) -> tuple[HookProcessingResult | None, str | None]:
+        """Show the permission picker and build the response for the chosen scope.
+
+        :param payload: Normalized permission payload.
+        :type payload: HookPayload
+        :param transport: UI transport implementation.
+        :type transport: DisplayTransport
+        :param current_error: Existing processing error, if any.
+        :type current_error: str | None
+        :return: A tuple of the processing result and the error to carry forward. The
+            result is ``None`` when the caller should fall back to the standard
+            permission dialog; the carried error preserves a picker transport failure
+            so it still surfaces in logs after the fallback.
+        """
+        if not hasattr(transport, "show_permission_choice_dialog"):
+            # Custom transports from older versions may not implement the picker; fall
+            # back to the standard permission dialog instead of crashing.
+            return None, current_error
+
+        dialog = build_permission_choice_dialog(payload)
+        dialog_result = transport.show_permission_choice_dialog(dialog)
+        if dialog_result.transport.status == TransportStatus.SKIPPED:
+            # Unsupported platform / disabled: fall back without recording an error.
+            return None, current_error
+        if dialog_result.transport.status != TransportStatus.SUCCEEDED:
+            # Transport/script failure: fall back to the standard permission dialog
+            # instead of denying, but keep the picker error so it is still logged.
+            return None, self.transport_error(dialog_result.transport, current_error)
+
+        response = build_permission_choice_response(payload, dialog_result.choice)
+        return (
+            HookProcessingResult(
+                display=dialog,
+                transport_result=dialog_result.transport,
+                response=response,
+                error=self.transport_error(dialog_result.transport, current_error),
+            ),
+            current_error,
         )
 
     def handle_ask_user_question(

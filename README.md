@@ -28,7 +28,7 @@ uv pip install agent-hooks
 
 ![Claude Code permission request shown as a macOS dialog](https://www.zhu424.dev/agent-hooks/latest/assets/agent-hooks-claude-code-example.png)
 
-Claude Code permission requests become a native local dialog with `Deny`, `Allow Once`, and session-scoped `Always Allow`.
+Claude Code permission requests become a native local dialog. When Claude offers permission suggestions, each one is rendered as its own choice in a picker (`Allow once` plus one entry per suggestion, shown exactly as Claude sent it) so you persist only the scope you pick; otherwise a `Deny` / `Allow Once` / session-scoped `Always Allow` dialog is shown.
 
 ### Codex
 

@@ -34,9 +34,6 @@ class DialogSpec:
     font_size: int | None = None
 
 
-DisplaySpec: TypeAlias = NotificationSpec | DialogSpec
-
-
 @dataclass(frozen=True)
 class AppleScriptResult:
     """Store the result of one AppleScript invocation."""
@@ -96,6 +93,52 @@ class AskUserQuestionDialogResult:
         return self.answers is None
 
 
+@dataclass(frozen=True)
+class PermissionChoice:
+    """Store one selectable choice in the permission picker.
+
+    Each choice maps a list entry to the response it produces. ``suggestion_index``
+    points at the permission suggestion (in payload order) that ``ALWAYS_ALLOW``
+    choices persist; it is ``None`` for choices that persist nothing, such as the
+    leading "Allow once" entry.
+    """
+
+    label: str
+    button: DialogButton
+    suggestion_index: int | None = None
+
+
+@dataclass(frozen=True)
+class PermissionChoiceDialogSpec:
+    """Store an interactive permission picker that lists each suggestion as a choice."""
+
+    title: str
+    message: str
+    choices: tuple[PermissionChoice, ...]
+    default_index: int = 0
+
+
+@dataclass(frozen=True)
+class PermissionChoiceDialogResult:
+    """Store the choice selected from the permission picker."""
+
+    choice: PermissionChoice | None
+    transport: AppleScriptResult
+
+    @property
+    def cancelled(self) -> bool:
+        """Return whether the user dismissed the picker without choosing."""
+        return self.choice is None
+
+
+DisplaySpec: TypeAlias = (
+    NotificationSpec
+    | DialogSpec
+    | AskUserQuestionDialogSpec
+    | PermissionChoiceDialogSpec
+)
+
+
 __all__ = [
     "AppleScriptResult",
     "AskUserQuestionDialogResult",
@@ -106,4 +149,7 @@ __all__ = [
     "DialogSpec",
     "DisplaySpec",
     "NotificationSpec",
+    "PermissionChoice",
+    "PermissionChoiceDialogResult",
+    "PermissionChoiceDialogSpec",
 ]
