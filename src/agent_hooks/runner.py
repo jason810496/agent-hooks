@@ -17,7 +17,7 @@ from types import ModuleType
 from typing import IO, TYPE_CHECKING
 
 from agent_hooks.config import RuntimeConfig, load_runtime_config, use_runtime_config
-from agent_hooks.enums import HookProvider
+from agent_hooks.enums import HookProvider, UiMode
 from agent_hooks.logging_utils import (
     append_application_log,
     append_input_audit_log,
@@ -32,6 +32,9 @@ from agent_hooks.models.schemas.log_records import (
 from agent_hooks.models.schemas.responses import HookResponse, HookResponseProtocol
 from agent_hooks.parsing import read_hook_input
 from agent_hooks.providers import provider_client
+from agent_hooks.sqlite.cleanup import install_handlers
+from agent_hooks.sqlite.db import daemon_is_alive
+from agent_hooks.sqlite.transport import SQLiteTransport
 from agent_hooks.transport import AppleScriptTransport, DisplayTransport
 
 if TYPE_CHECKING:
@@ -347,11 +350,7 @@ def run_callback(
         ),
         config.audit_logging.input_file,
     )
-    display_transport = transport or AppleScriptTransport(
-        skip_osascript=config.skip_osascript,
-        dialog_font_size=config.dialog_font_size,
-        notification_timeout=config.notification_timeout_seconds,
-    )
+    display_transport = transport or _build_display_transport(config, input_data.payload)
     with use_runtime_config(config):
         result = hook.dispatch(input_data, display_transport)
     response_text = _render_hook_response(
@@ -413,6 +412,34 @@ def _resolve_provider(
     if hook.provider is not None:
         return provider_client.coerce_provider(hook.provider)
     return runtime_config.provider
+
+
+def _build_display_transport(config: RuntimeConfig, payload: HookPayload) -> DisplayTransport:
+    """Select the UI transport for one callback run.
+
+    Uses the SQLite transport only when ``AGENT_HOOK_UI=sqlite`` and the Swift daemon
+    has heartbeated recently; otherwise falls back to AppleScript so a hook never
+    blocks with no UI to answer it.
+
+    :param config: Resolved runtime configuration.
+    :type config: RuntimeConfig
+    :param payload: Normalized payload for the event being handled.
+    :type payload: HookPayload
+    :return: The transport to dispatch through.
+    """
+    if config.ui_mode == UiMode.SQLITE and daemon_is_alive(config.db_path):
+        install_handlers()
+        return SQLiteTransport(
+            payload=payload,
+            db_path=config.db_path,
+            poll_interval=config.sqlite_poll_interval_seconds,
+            request_timeout=config.request_timeout_seconds,
+        )
+    return AppleScriptTransport(
+        skip_osascript=config.skip_osascript,
+        dialog_font_size=config.dialog_font_size,
+        notification_timeout=config.notification_timeout_seconds,
+    )
 
 
 __all__ = ["AgentHookFileLoader", "run_callback"]

@@ -12,6 +12,13 @@ class HookProvider(str, Enum):
     CODEX = "codex"
 
 
+class UiMode(str, Enum):
+    """Represent the local UI transport used to answer hook events."""
+
+    APPLESCRIPT = "applescript"
+    SQLITE = "sqlite"
+
+
 class HookEventName(str, Enum):
     """Represent normalized hook events across supported providers."""
 
