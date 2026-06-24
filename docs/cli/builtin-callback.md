@@ -6,7 +6,7 @@ The built-in callback command is:
 agent-hooks callback
 ```
 
-It resolves to the built-in app instance at `agent_hooks.cli_app.app:app`.
+It resolves to the built-in app instance at `app.builtin:app`.
 
 <p class="ah-lead">
 This is the "just make it work" path: one local callback target that turns Claude Code and Codex hook payloads into native macOS dialogs and notifications.
@@ -156,6 +156,24 @@ The built-in callback can determine its provider in three ways:
     **Use `--provider` when the caller is fixed.** Inference is helpful for mixed payload testing, but explicit provider selection removes ambiguity in production-like setups.
 
 If you know which provider is calling the hook, using `--provider` keeps the setup explicit.
+
+## UI Backend Selection
+
+The built-in callback chooses where prompts appear with `--ui`:
+
+- `--ui applescript` (default): native macOS dialogs and notifications via `osascript`.
+  No extra setup; used whenever the flag is omitted.
+- `--ui swift-ui`: defer prompts to the native macOS Swift app, which renders a unified
+  permission queue. Add the flag to the hook command, e.g.
+  `agent-hooks callback --provider claude-code --ui swift-ui`.
+
+!!! note "swift-ui requires the Swift app"
+    `--ui swift-ui` only takes effect while the Swift app (its background daemon) is
+    running. When the daemon is not running, the callback automatically falls back to the
+    AppleScript dialog so a hook never blocks with no UI to answer it. The swift-ui
+    backend uses a shared SQLite database under
+    `~/Library/Application Support/agent-hooks/queue.db` as its IPC channel; this is an
+    implementation detail you do not normally configure.
 
 ## Why People Start Here
 

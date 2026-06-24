@@ -1,7 +1,7 @@
 """SQLite-backed DisplayTransport that defers hook decisions to the Swift app.
 
-This transport is selected (opt-in) instead of AppleScript when ``AGENT_HOOK_UI`` is
-``sqlite`` and the Swift daemon is running. Each blocking display call writes one
+This transport is selected (opt-in) instead of AppleScript when ``--ui swift-ui`` is
+passed and the Swift daemon is running. Each blocking display call writes one
 ``requests`` row and then polls the ``responses`` table until the Swift app answers,
 the request expires, or the process is interrupted. It implements the same
 ``DisplayTransport`` protocol as ``AppleScriptTransport`` so the handler logic,
@@ -36,9 +36,9 @@ from agent_hooks.models.schemas.display import (
     PermissionChoiceDialogSpec,
 )
 from agent_hooks.models.schemas.hooks import HookPayload
-from agent_hooks.sqlite.cleanup import register_pending, resolve_pending
-from agent_hooks.sqlite.db import connect, now_ms
-from agent_hooks.sqlite.queue import resolve_queue
+from app.swift_ui.cleanup import register_pending, resolve_pending
+from app.swift_ui.db import connect, now_ms
+from app.swift_ui.queue import resolve_queue
 
 DEFAULT_POLL_INTERVAL_SECONDS = 0.2
 MIN_POLL_INTERVAL_SECONDS = 0.05

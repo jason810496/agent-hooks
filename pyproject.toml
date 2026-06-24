@@ -21,7 +21,7 @@ Homepage = "https://www.zhu424.dev/agent-hooks/latest/"
 Source = "https://github.com/jason810496/agent-hooks"
 
 [project.scripts]
-agent-hooks = "agent_hooks.__main__:main"
+agent-hooks = "app.cli:main"
 
 [dependency-groups]
 dev = [
@@ -40,7 +40,7 @@ exclude-newer = "7 days"
 
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/agent_hooks"]
+packages = ["src/agent_hooks", "src/app"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

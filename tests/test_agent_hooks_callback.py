@@ -23,8 +23,6 @@ from agent_hooks import (
     StopFailureEvent,
     UserPromptSubmitEvent,
 )
-from agent_hooks.cli_app.app import app
-from agent_hooks.cli_app.cli import main as cli_main
 from agent_hooks.config import (
     DEFAULT_COMMAND_PREVIEW_MAX_LINE_CHARS,
     DEFAULT_COMMAND_PREVIEW_MAX_TOTAL_CHARS,
@@ -78,6 +76,9 @@ from agent_hooks.providers.codex.middleware import (
 from agent_hooks.providers.common import format_command_detail
 from agent_hooks.runner import run_callback
 from agent_hooks.transport import DisplayTransport
+from app.builtin import app
+from app.cli import main as cli_main
+from app.transports import build_transport
 
 
 class FakeTransport:
@@ -2384,7 +2385,7 @@ class TestRunCallback:
         expected_response_bytes = len(stdout.getvalue().encode("utf-8"))
         assert f'"response_bytes": {expected_response_bytes}' in app_log
 
-    def test_run_callback_passes_dialog_font_size_to_default_transport(
+    def test_build_transport_passes_dialog_font_size_to_applescript_transport(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
@@ -2403,46 +2404,16 @@ class TestRunCallback:
                 captured_init["dialog_font_size"] = dialog_font_size
                 captured_init["notification_timeout"] = notification_timeout
 
-            def send_notification(self, notification: object) -> AppleScriptResult:
-                return AppleScriptResult(
-                    status=TransportStatus.SUCCEEDED,
-                    invocation=AppleScriptInvocation.NOTIFICATION,
-                )
-
-            def show_dialog(self, dialog: object) -> DialogResult:
-                return DialogResult(
-                    button=DialogButton.ALLOW_ONCE,
-                    transport=AppleScriptResult(
-                        status=TransportStatus.SUCCEEDED,
-                        invocation=AppleScriptInvocation.DIALOG,
-                    ),
-                )
-
-        stdin = StringIO(
-            """
-            {
-              "hook_event_name": "PermissionRequest",
-              "tool_name": "Bash",
-              "tool_input": {"command": "git status"}
-            }
-            """
-        )
-        stdout = StringIO()
         runtime_config = build_runtime_config(
             tmp_path,
             dialog_font_size=21,
             notification_timeout_seconds=7.5,
         )
-        monkeypatch.setattr(runner_module, "AppleScriptTransport", FakeAppleScriptTransport)
+        monkeypatch.setattr("app.transports.AppleScriptTransport", FakeAppleScriptTransport)
 
-        exit_code = run_callback(
-            app,
-            stdin=stdin,
-            stdout=stdout,
-            runtime_config=runtime_config,
-        )
+        transport = build_transport("applescript", config=runtime_config, raw_input="")
 
-        assert exit_code == 0
+        assert isinstance(transport, FakeAppleScriptTransport)
         assert captured_init == {
             "skip_osascript": True,
             "dialog_font_size": 21,
@@ -2906,14 +2877,20 @@ class TestCliMain:
         captured_target: object | None = None
         captured_provider: str | None = None
 
-        def fake_run_callback(target: object, *, provider: str | None = None) -> int:
+        def fake_run_callback(
+            target: object,
+            *,
+            stdin: object | None = None,
+            transport: object | None = None,
+            provider: str | None = None,
+        ) -> int:
             nonlocal captured_target
             nonlocal captured_provider
             captured_target = target
             captured_provider = provider
             return 27
 
-        monkeypatch.setattr("agent_hooks.cli_app.cli.run_callback", fake_run_callback)
+        monkeypatch.setattr("app.cli.run_callback", fake_run_callback)
 
         exit_code = cli_main(
             ["run", "cli_file_hooks.py", "--app-dir", str(tmp_path), "--provider", "codex"]
@@ -2930,14 +2907,20 @@ class TestCliMain:
         captured_target: object | None = None
         captured_provider: str | None = None
 
-        def fake_run_callback(target: object, *, provider: str | None = None) -> int:
+        def fake_run_callback(
+            target: object,
+            *,
+            stdin: object | None = None,
+            transport: object | None = None,
+            provider: str | None = None,
+        ) -> int:
             nonlocal captured_target
             nonlocal captured_provider
             captured_target = target
             captured_provider = provider
             return 11
 
-        monkeypatch.setattr("agent_hooks.cli_app.cli.run_callback", fake_run_callback)
+        monkeypatch.setattr("app.cli.run_callback", fake_run_callback)
 
         exit_code = cli_main(["callback", "--provider", "codex"])
 

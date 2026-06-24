@@ -21,7 +21,7 @@ from agent_hooks.models.schemas.display import (
     PermissionChoice,
     PermissionChoiceDialogSpec,
 )
-from agent_hooks.transport import (
+from app.applescript.transport import (
     AppleScriptTransport,
     get_ask_user_question_script,
     get_dialog_script,
@@ -240,7 +240,9 @@ def test_show_dialog_passes_custom_icon_path_to_osascript(monkeypatch) -> None:
             stdout="button returned:Allow Once",
         )
 
-    monkeypatch.setattr("agent_hooks.transport.resolve_dialog_icon_path", lambda: "/tmp/logo.jpeg")
+    monkeypatch.setattr(
+        "app.applescript.transport.resolve_dialog_icon_path", lambda: "/tmp/logo.jpeg"
+    )
     monkeypatch.setattr(transport, "_run_osascript", fake_run_osascript)
 
     result = transport.show_dialog(
@@ -290,7 +292,9 @@ def test_show_dialog_passes_configured_font_size_to_osascript(monkeypatch) -> No
             stdout="button returned:Allow Once",
         )
 
-    monkeypatch.setattr("agent_hooks.transport.resolve_dialog_icon_path", lambda: "/tmp/logo.jpeg")
+    monkeypatch.setattr(
+        "app.applescript.transport.resolve_dialog_icon_path", lambda: "/tmp/logo.jpeg"
+    )
     monkeypatch.setattr(transport, "_run_osascript", fake_run_osascript)
 
     result = transport.show_dialog(
@@ -767,7 +771,7 @@ def test_send_notification_returns_failed_result_when_osascript_times_out(monkey
     def fake_run(*args, **kwargs) -> None:
         raise subprocess.TimeoutExpired(cmd="osascript", timeout=0.01)
 
-    monkeypatch.setattr("agent_hooks.transport.subprocess.run", fake_run)
+    monkeypatch.setattr("app.applescript.transport.subprocess.run", fake_run)
 
     result = transport.send_notification(NotificationSpec(title="Claude finished", message="Done"))
 

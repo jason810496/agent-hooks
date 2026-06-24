@@ -1,4 +1,9 @@
-"""Provide the built-in AppleScript callback application."""
+"""Provide the built-in callback application.
+
+The ``AgentHook`` instance and default handlers here are UI-agnostic: the display
+transport (AppleScript or the SQLite-backed Swift UI) is chosen by the CLI and injected
+at runtime through ``run_callback``.
+"""
 
 from __future__ import annotations
 

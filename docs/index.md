@@ -91,7 +91,7 @@ Agent Hooks normalizes those problems into one package.
 
 ### Built-in CLI
 
-The built-in app is exposed as `agent_hooks.cli_app.app:app` and run through:
+The built-in app is exposed as `app.builtin:app` and run through:
 
 ```bash
 agent-hooks callback

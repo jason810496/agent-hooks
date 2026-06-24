@@ -1,4 +1,4 @@
-"""Tests for the SQLite-backed display transport and runner transport selection."""
+"""Tests for the SQLite-backed display transport and the ``--ui`` transport factory."""
 
 from __future__ import annotations
 
@@ -21,9 +21,9 @@ from agent_hooks.models.schemas.display import (
     NotificationSpec,
 )
 from agent_hooks.models.schemas.hooks import HookPayload, ToolInput
-from agent_hooks.sqlite import cleanup
-from agent_hooks.sqlite.db import bootstrap_database, connect, now_ms
-from agent_hooks.sqlite.transport import SQLiteTransport
+from app.swift_ui import cleanup
+from app.swift_ui.db import bootstrap_database, connect, now_ms
+from app.swift_ui.transport import SQLiteTransport
 
 PERMISSION_BUTTONS = (DialogButton.DENY, DialogButton.ALLOW_ONCE, DialogButton.ALWAYS_ALLOW)
 
@@ -394,16 +394,40 @@ def test_cleanup_marks_pending_cancelled(db_path: Path, tmp_path: Path) -> None:
     assert status == "cancelled"
 
 
-def test_build_display_transport_falls_back_without_daemon(tmp_path: Path) -> None:
-    from agent_hooks.runner import _build_display_transport
-    from agent_hooks.transport import AppleScriptTransport
+def test_build_transport_applescript_is_default(tmp_path: Path) -> None:
+    from app.applescript.transport import AppleScriptTransport
+    from app.transports import build_transport
+
+    config = load_runtime_config({})
+    transport = build_transport("applescript", config=config, raw_input="")
+    assert isinstance(transport, AppleScriptTransport)
+
+
+def _hook_input_json(tmp_path: Path) -> str:
+    """Return a minimal permission-request payload as JSON."""
+    return json.dumps(
+        {
+            "hook_event_name": "PermissionRequest",
+            "tool_name": "Bash",
+            "tool_input": {"command": "ls"},
+            "cwd": str(tmp_path),
+        }
+    )
+
+
+def test_build_transport_swift_ui_falls_back_without_daemon(tmp_path: Path, monkeypatch) -> None:
+    from app.applescript.transport import AppleScriptTransport
+    from app.transports import build_transport
 
     db = tmp_path / "queue.db"
-    config = load_runtime_config({"AGENT_HOOK_UI": "sqlite", "AGENT_HOOK_DB_PATH": str(db)})
-    payload = _payload(cwd=str(tmp_path))
+    monkeypatch.setenv("AGENT_HOOK_DB_PATH", str(db))
+    config = load_runtime_config({})
+    raw_input = _hook_input_json(tmp_path)
 
     # No database file at all: fall back to AppleScript so the hook never hangs.
-    assert isinstance(_build_display_transport(config, payload), AppleScriptTransport)
+    assert isinstance(
+        build_transport("swift-ui", config=config, raw_input=raw_input), AppleScriptTransport
+    )
 
     # A fresh daemon heartbeat routes through the SQLite transport.
     bootstrap_database(db)
@@ -415,15 +439,18 @@ def test_build_display_transport_falls_back_without_daemon(tmp_path: Path) -> No
         )
     finally:
         connection.close()
-    assert isinstance(_build_display_transport(config, payload), SQLiteTransport)
+    assert isinstance(
+        build_transport("swift-ui", config=config, raw_input=raw_input), SQLiteTransport
+    )
 
 
-def test_build_display_transport_stale_daemon_falls_back(tmp_path: Path) -> None:
-    from agent_hooks.runner import _build_display_transport
-    from agent_hooks.transport import AppleScriptTransport
+def test_build_transport_swift_ui_stale_daemon_falls_back(tmp_path: Path, monkeypatch) -> None:
+    from app.applescript.transport import AppleScriptTransport
+    from app.transports import build_transport
 
     db = tmp_path / "queue.db"
-    config = load_runtime_config({"AGENT_HOOK_UI": "sqlite", "AGENT_HOOK_DB_PATH": str(db)})
+    monkeypatch.setenv("AGENT_HOOK_DB_PATH", str(db))
+    config = load_runtime_config({})
     bootstrap_database(db)
     connection = connect(db)
     try:
@@ -435,5 +462,6 @@ def test_build_display_transport_stale_daemon_falls_back(tmp_path: Path) -> None
         connection.close()
 
     assert isinstance(
-        _build_display_transport(config, _payload(cwd=str(tmp_path))), AppleScriptTransport
+        build_transport("swift-ui", config=config, raw_input=_hook_input_json(tmp_path)),
+        AppleScriptTransport,
     )

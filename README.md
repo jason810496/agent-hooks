@@ -108,7 +108,7 @@ Use `AgentHook` when you need to define custom permission, notification, or stop
 
 ### Built-in CLI
 
-The built-in app is exposed as `agent_hooks.cli_app.app:app` and can be run with:
+The built-in app is exposed as `app.builtin:app` and can be run with:
 
 ```bash
 agent-hooks callback

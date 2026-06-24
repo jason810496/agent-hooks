@@ -8,11 +8,11 @@ import os
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 
-from agent_hooks.enums import HookProvider, UiMode
+from agent_hooks.enums import HookProvider
 
 DEFAULT_LOG_MAX_BYTES = 5 * 1024 * 1024
 DEFAULT_LOG_BACKUP_COUNT = 5
@@ -27,10 +27,6 @@ DEFAULT_COMMAND_PREVIEW_MAX_TOTAL_CHARS = 900
 DEFAULT_COMMAND_PREVIEW_MAX_TOTAL_LINES = 10
 DEFAULT_COMMAND_PREVIEW_MAX_LINE_CHARS = 100
 DEFAULT_NOTIFICATION_TIMEOUT_SECONDS = 10.0
-DEFAULT_UI_MODE = UiMode.APPLESCRIPT
-DEFAULT_SQLITE_POLL_INTERVAL_SECONDS = 0.2
-DEFAULT_REQUEST_TIMEOUT_SECONDS = 0.0
-DEFAULT_DB_FILENAME = "queue.db"
 
 APPLICATION_LOG_FORMAT_ENV_VAR = "AGENT_HOOK_APP_LOG_FORMAT"
 APPLICATION_LOG_LEVEL_ENV_VAR = "AGENT_HOOK_APP_LOG_LEVEL"
@@ -43,10 +39,6 @@ COMMAND_PREVIEW_MAX_LINE_CHARS_ENV_VAR = "AGENT_HOOK_COMMAND_PREVIEW_MAX_LINE_CH
 DIALOG_FONT_SIZE_ENV_VAR = "AGENT_HOOK_DIALOG_FONT_SIZE"
 NOTIFICATION_TIMEOUT_ENV_VAR = "AGENT_HOOK_NOTIFICATION_TIMEOUT"
 PROVIDER_ENV_VAR = "AGENT_HOOK_PROVIDER"
-UI_ENV_VAR = "AGENT_HOOK_UI"
-DB_PATH_ENV_VAR = "AGENT_HOOK_DB_PATH"
-SQLITE_POLL_INTERVAL_ENV_VAR = "AGENT_HOOK_SQLITE_POLL_INTERVAL"
-REQUEST_TIMEOUT_ENV_VAR = "AGENT_HOOK_REQUEST_TIMEOUT"
 DISABLE_OSASCRIPT_ENV_VARS = (
     "AGENT_HOOK_DISABLE_OSASCRIPT",
     "CLAUDE_HOOK_DISABLE_OSASCRIPT",
@@ -71,14 +63,6 @@ LOG_LEVEL_BY_NAME = {
     "DEBUG": logging.DEBUG,
     "NOTSET": logging.NOTSET,
 }
-
-
-def default_db_path() -> Path:
-    """Return the default shared SQLite database path under Application Support.
-
-    :return: ``~/Library/Application Support/agent-hooks/queue.db``.
-    """
-    return Path.home() / "Library" / "Application Support" / "agent-hooks" / DEFAULT_DB_FILENAME
 
 
 @dataclass(frozen=True)
@@ -123,10 +107,6 @@ class RuntimeConfig:
     command_preview_max_total_lines: int = DEFAULT_COMMAND_PREVIEW_MAX_TOTAL_LINES
     command_preview_max_line_chars: int = DEFAULT_COMMAND_PREVIEW_MAX_LINE_CHARS
     notification_timeout_seconds: float = DEFAULT_NOTIFICATION_TIMEOUT_SECONDS
-    ui_mode: UiMode = DEFAULT_UI_MODE
-    db_path: Path = field(default_factory=lambda: default_db_path())
-    sqlite_poll_interval_seconds: float = DEFAULT_SQLITE_POLL_INTERVAL_SECONDS
-    request_timeout_seconds: float = DEFAULT_REQUEST_TIMEOUT_SECONDS
     warnings: tuple[str, ...] = ()
 
     @property
@@ -304,30 +284,6 @@ def _build_runtime_config(env: Mapping[str, str]) -> RuntimeConfig:
         default=DEFAULT_NOTIFICATION_TIMEOUT_SECONDS,
         warnings=warnings,
     )
-    ui_mode = read_ui_mode_env(
-        environment,
-        UI_ENV_VAR,
-        default=DEFAULT_UI_MODE,
-        warnings=warnings,
-    )
-    db_path = read_path_env(
-        environment,
-        DB_PATH_ENV_VAR,
-        default=default_db_path(),
-        project_root=project_root,
-    )
-    sqlite_poll_interval_seconds = read_positive_float_env(
-        environment,
-        SQLITE_POLL_INTERVAL_ENV_VAR,
-        default=DEFAULT_SQLITE_POLL_INTERVAL_SECONDS,
-        warnings=warnings,
-    )
-    request_timeout_seconds = read_timeout_env(
-        environment,
-        REQUEST_TIMEOUT_ENV_VAR,
-        default=DEFAULT_REQUEST_TIMEOUT_SECONDS,
-        warnings=warnings,
-    )
 
     return RuntimeConfig(
         project_root=project_root,
@@ -349,10 +305,6 @@ def _build_runtime_config(env: Mapping[str, str]) -> RuntimeConfig:
         command_preview_max_total_lines=command_preview_max_total_lines,
         command_preview_max_line_chars=command_preview_max_line_chars,
         notification_timeout_seconds=notification_timeout_seconds,
-        ui_mode=ui_mode,
-        db_path=db_path,
-        sqlite_poll_interval_seconds=sqlite_poll_interval_seconds,
-        request_timeout_seconds=request_timeout_seconds,
         warnings=tuple(warnings),
     )
 
@@ -376,68 +328,6 @@ def read_provider_env(
     except ValueError:
         warnings.append(f"Ignored invalid provider {raw_value!r} from {env_var}.")
         return None
-
-
-def read_ui_mode_env(
-    env: Mapping[str, str],
-    env_var: str,
-    *,
-    default: UiMode,
-    warnings: list[str],
-) -> UiMode:
-    """Parse the configured local UI transport mode.
-
-    :param env: Environment mapping to read from.
-    :type env: Mapping[str, str]
-    :param env_var: Variable name to read.
-    :type env_var: str
-    :param default: Default mode when unset or invalid.
-    :type default: UiMode
-    :param warnings: Accumulator for config warnings.
-    :type warnings: list[str]
-    :return: Parsed UI mode, or the default.
-    """
-    raw_value = env.get(env_var)
-    if raw_value is None or not raw_value.strip():
-        return default
-    try:
-        return UiMode(raw_value.strip().lower())
-    except ValueError:
-        warnings.append(f"Ignored invalid UI mode {raw_value!r} from {env_var}.")
-        return default
-
-
-def read_positive_float_env(
-    env: Mapping[str, str],
-    env_var: str,
-    *,
-    default: float,
-    warnings: list[str],
-) -> float:
-    """Parse an optional positive float from the environment.
-
-    :param env: Environment mapping to read from.
-    :type env: Mapping[str, str]
-    :param env_var: Variable name to read.
-    :type env_var: str
-    :param default: Default value when unset or invalid.
-    :type default: float
-    :param warnings: Accumulator for config warnings.
-    :type warnings: list[str]
-    :return: Parsed positive float, or the default.
-    """
-    raw_value = env.get(env_var)
-    if raw_value is None or not raw_value.strip():
-        return default
-    try:
-        value = float(raw_value)
-    except ValueError:
-        warnings.append(f"Invalid number value for {env_var}: {raw_value!r}. Using fallback.")
-        return default
-    if value <= 0 or not math.isfinite(value):
-        warnings.append(f"Non-positive number value for {env_var}: {raw_value!r}. Using fallback.")
-        return default
-    return value
 
 
 def load_file_logging_config(

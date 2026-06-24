@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from agent_hooks.cli_app.cli import main
 from agent_hooks.default_handlers import DefaultHookHandler, build_permission_response
 from agent_hooks.enums import HookProvider
 from agent_hooks.models.events import (
@@ -41,6 +40,5 @@ __all__ = [
     "StopFailureEvent",
     "UserPromptSubmitEvent",
     "build_permission_response",
-    "main",
     "run_callback",
 ]
