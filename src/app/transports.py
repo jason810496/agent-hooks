@@ -17,6 +17,7 @@ from app.applescript.transport import AppleScriptTransport
 from app.swift_ui.cleanup import install_handlers
 from app.swift_ui.config import load_swift_ui_config
 from app.swift_ui.db import daemon_is_alive
+from app.swift_ui.session_store import record_session_event
 from app.swift_ui.transport import SQLiteTransport
 
 APPLESCRIPT_UI = "applescript"
@@ -72,6 +73,9 @@ def _build_swift_ui_transport(
         # a UI to answer it instead of blocking on a database nobody is watching.
         return _build_applescript_transport(config)
     payload = read_hook_input(StringIO(raw_input), provider=provider).payload
+    # Record session state for every event (blocking or not) so the Swift "Sessions"
+    # panel reflects activity even when no permission dialog is shown. Best-effort.
+    record_session_event(swift_config.db_path, payload)
     install_handlers()
     return SQLiteTransport(
         payload=payload,

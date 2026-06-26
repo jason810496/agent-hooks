@@ -72,4 +72,28 @@ CREATE TABLE IF NOT EXISTS daemon (
   heartbeat_at_ms INTEGER NOT NULL
 );
 
-PRAGMA user_version = 1;
+-- sessions: one row per Claude Code / Codex session, upserted by the Python hook on
+-- every event. ``status`` is the round state; the Swift app derives live/dead from
+-- ``session_pid``/``session_host`` (process liveness) plus transcript mtime, so aliveness
+-- is never persisted and cannot go stale.
+CREATE TABLE IF NOT EXISTS sessions (
+  session_id        TEXT NOT NULL,
+  provider          TEXT NOT NULL,       -- 'claude-code' | 'codex'
+  queue             TEXT NOT NULL,       -- git toplevel of cwd (worktree root), fallback cwd
+  cwd               TEXT NOT NULL,
+  model             TEXT,
+  transcript_path   TEXT,
+  session_pid       INTEGER,             -- os.getppid() of the hook = the agent process
+  session_host      TEXT,                -- socket.gethostname()
+  status            TEXT NOT NULL,       -- working | idle | failed
+  last_event        TEXT,                -- raw_event_name of the last update
+  tool_name         TEXT,                -- last known tool
+  round_started_ms  INTEGER,             -- set on UserPromptSubmit/SessionStart, cleared on Stop
+  last_round_ms     INTEGER,             -- duration of the last completed round
+  error_text        TEXT,                -- StopFailure detail
+  updated_at_ms     INTEGER NOT NULL,
+  PRIMARY KEY (session_id, provider)
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions (updated_at_ms);
+
+PRAGMA user_version = 2;

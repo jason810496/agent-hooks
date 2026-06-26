@@ -10,6 +10,8 @@ from agent_hooks.providers.common import coerce_object, coerce_text
 RAW_EVENT_TO_NORMALIZED = {
     "Notification": HookEventName.NOTIFICATION,
     "PermissionRequest": HookEventName.PERMISSION_REQUEST,
+    "SessionStart": HookEventName.SESSION_START,
+    "UserPromptSubmit": HookEventName.USER_PROMPT_SUBMIT,
     "Stop": HookEventName.STOP,
     "StopFailure": HookEventName.STOP_FAILURE,
 }
@@ -52,9 +54,9 @@ def matches_payload(raw_payload: JsonObject) -> bool:
         if "turn_id" in raw_payload:
             return False
         return coerce_text(raw_payload.get("tool_name")) == ASK_USER_QUESTION_TOOL_NAME
-    if raw_event_name in {"PostToolUse", "UserPromptSubmit"}:
+    if raw_event_name == "PostToolUse":
         return False
-    if raw_event_name == "Stop":
+    if raw_event_name in {"UserPromptSubmit", "Stop"}:
         return "turn_id" not in raw_payload
     return False
 

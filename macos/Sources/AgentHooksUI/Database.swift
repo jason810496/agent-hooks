@@ -39,6 +39,25 @@ struct RawNotification {
     let createdAtMs: Int64
 }
 
+/// Raw session row as upserted by the Python hook on every event.
+struct RawSession {
+    let sessionId: String
+    let provider: String
+    let queue: String
+    let cwd: String
+    let model: String
+    let transcriptPath: String
+    let pid: Int32
+    let host: String
+    let status: String
+    let lastEvent: String
+    let toolName: String
+    let roundStartedMs: Int64?
+    let lastRoundMs: Int64?
+    let errorText: String
+    let updatedAtMs: Int64
+}
+
 /// Thin wrapper over the shared SQLite database. All calls run on the main thread; the
 /// connection is serialized and uses WAL so it coexists with the concurrent Python writers.
 final class Database {
@@ -161,6 +180,41 @@ final class Database {
         return rows
     }
 
+    /// All session rows, newest first. The table is kept small by ``pruneSessions``; the
+    /// caller computes liveness, filters, sorts, and caps the list.
+    func fetchSessions() -> [RawSession] {
+        let sql = """
+        SELECT session_id, provider, queue, cwd, model, transcript_path, session_pid,
+               session_host, status, last_event, tool_name, round_started_ms, last_round_ms,
+               error_text, updated_at_ms
+        FROM sessions
+        ORDER BY updated_at_ms DESC
+        """
+        var rows: [RawSession] = []
+        query(sql) { stmt in
+            rows.append(
+                RawSession(
+                    sessionId: text(stmt, 0),
+                    provider: text(stmt, 1),
+                    queue: text(stmt, 2),
+                    cwd: text(stmt, 3),
+                    model: text(stmt, 4),
+                    transcriptPath: text(stmt, 5),
+                    pid: Int32(sqlite3_column_int64(stmt, 6)),
+                    host: text(stmt, 7),
+                    status: text(stmt, 8),
+                    lastEvent: text(stmt, 9),
+                    toolName: text(stmt, 10),
+                    roundStartedMs: optInt64(stmt, 11),
+                    lastRoundMs: optInt64(stmt, 12),
+                    errorText: text(stmt, 13),
+                    updatedAtMs: sqlite3_column_int64(stmt, 14)
+                )
+            )
+        }
+        return rows
+    }
+
     // MARK: - Writes
 
     func insertResponse(
@@ -243,6 +297,32 @@ final class Database {
         }
     }
 
+    /// Delete sessions whose process is gone. Same-host sessions are pruned once untouched since
+    /// `staleCutoffMs` AND their pid is dead — so a live session is never removed, however long it
+    /// has been idle. Other-host sessions (whose pid we cannot probe) are pruned only past the
+    /// `hardCutoffMs` backstop.
+    func pruneSessions(staleCutoffMs: Int64, hardCutoffMs: Int64, localHost: String) {
+        var doomed: [(String, String)] = []
+        query(
+            "SELECT session_id, provider, session_pid, session_host, updated_at_ms FROM sessions"
+        ) { stmt in
+            let updated = sqlite3_column_int64(stmt, 4)
+            if updated >= staleCutoffMs { return }
+            let pid = Int32(sqlite3_column_int64(stmt, 2))
+            let host = text(stmt, 3)
+            let prune = isSameHost(host, localHost) ? !processIsAlive(pid) : updated < hardCutoffMs
+            if prune {
+                doomed.append((text(stmt, 0), text(stmt, 1)))
+            }
+        }
+        for (sessionId, provider) in doomed {
+            execute("DELETE FROM sessions WHERE session_id = ? AND provider = ?") { stmt in
+                bindText(stmt, 1, sessionId)
+                bindText(stmt, 2, provider)
+            }
+        }
+    }
+
     /// Diagnostics only (``--selftest``): insert a synthetic pending request. The normal flow
     /// never inserts requests from Swift; the Python hook owns that table.
     func diagnosticsInsertRequest(
@@ -271,6 +351,35 @@ final class Database {
             sqlite3_bind_int64(stmt, 6, Int64(ownerPid))
             sqlite3_bind_int64(stmt, 7, nowMs())
             sqlite3_bind_int64(stmt, 8, heartbeatAtMs)
+        }
+    }
+
+    /// Diagnostics only (``--selftest``): insert a synthetic session row.
+    func diagnosticsInsertSession(
+        sessionId: String,
+        provider: String,
+        status: String,
+        pid: Int32,
+        host: String,
+        updatedAtMs: Int64
+    ) {
+        execute(
+            """
+            INSERT INTO sessions
+              (session_id, provider, queue, cwd, model, transcript_path, session_pid,
+               session_host, status, last_event, tool_name, round_started_ms, last_round_ms,
+               error_text, updated_at_ms)
+            VALUES (?, ?, '/tmp/repo', '/tmp/repo', '', '', ?, ?, ?, 'UserPromptSubmit', NULL,
+               ?, NULL, NULL, ?)
+            """
+        ) { stmt in
+            bindText(stmt, 1, sessionId)
+            bindText(stmt, 2, provider)
+            sqlite3_bind_int64(stmt, 3, Int64(pid))
+            bindText(stmt, 4, host)
+            bindText(stmt, 5, status)
+            sqlite3_bind_int64(stmt, 6, updatedAtMs)
+            sqlite3_bind_int64(stmt, 7, updatedAtMs)
         }
     }
 
@@ -355,4 +464,10 @@ final class Database {
 private func text(_ stmt: OpaquePointer, _ index: Int32) -> String {
     guard let value = sqlite3_column_text(stmt, index) else { return "" }
     return String(cString: value)
+}
+
+/// Read an INTEGER column as `Int64?`, returning nil for SQL NULL.
+private func optInt64(_ stmt: OpaquePointer, _ index: Int32) -> Int64? {
+    guard sqlite3_column_type(stmt, index) != SQLITE_NULL else { return nil }
+    return sqlite3_column_int64(stmt, index)
 }

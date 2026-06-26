@@ -31,7 +31,7 @@ func deadRequestUIDs(
 ) -> [String] {
     owners.compactMap { owner in
         let age = now - owner.heartbeatAtMs
-        let sameHost = owner.host == host || owner.host.isEmpty
+        let sameHost = isSameHost(owner.host, host)
         if sameHost && age > reapGraceMs && !processIsAlive(owner.pid) {
             return owner.uid
         }

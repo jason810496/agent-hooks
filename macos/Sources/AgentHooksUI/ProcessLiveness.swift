@@ -9,3 +9,11 @@ func processIsAlive(_ pid: Int32) -> Bool {
     if kill(pid, 0) == 0 { return true }
     return errno == EPERM
 }
+
+/// Whether a recorded host matches this machine. Compared case-insensitively because Python
+/// (`socket.gethostname()`) and Swift (`ProcessInfo.hostName`) can disagree on case
+/// (e.g. `Jasons-MacBook-Pro.local` vs `jasons-macbook-pro.local`). An empty recorded host is
+/// treated as a match so liveness still resolves.
+func isSameHost(_ recorded: String, _ local: String) -> Bool {
+    recorded.isEmpty || recorded.caseInsensitiveCompare(local) == .orderedSame
+}

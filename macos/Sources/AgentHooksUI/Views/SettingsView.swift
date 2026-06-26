@@ -77,6 +77,19 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    Stepper(value: maxSessionsBinding, in: 1...50) {
+                        LabeledContent("Show at most") {
+                            Text("\(store.settings.maxSessionsShown) sessions")
+                        }
+                    }
+                } header: {
+                    Text("Sessions")
+                } footer: {
+                    Text("Caps the Sessions panel. Rows are ordered by status: working, idle, then gone.")
+                        .foregroundStyle(.secondary)
+                }
+
+                Section {
                     Stepper(value: pollBinding, in: 100...5000, step: 100) {
                         LabeledContent("Poll interval") {
                             Text("\(store.settings.pollIntervalMs) ms")
@@ -138,6 +151,13 @@ struct SettingsView: View {
         Binding(
             get: { store.settings.pollIntervalMs },
             set: { value in store.updateSettings { $0.pollIntervalMs = value } }
+        )
+    }
+
+    private var maxSessionsBinding: Binding<Int> {
+        Binding(
+            get: { store.settings.maxSessionsShown },
+            set: { value in store.updateSettings { $0.maxSessionsShown = value } }
         )
     }
 }

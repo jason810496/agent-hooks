@@ -19,7 +19,7 @@ This page is intentionally blunt. It describes current implementation limits, no
 
 ## Codex Limits
 
-- The built-in app registers `SessionStart`, `PostToolUse`, and `UserPromptSubmit`, but they currently return empty responses.
+- The built-in app registers `SessionStart`, `PostToolUse`, and `UserPromptSubmit`, which return empty responses to the provider. `SessionStart` and `UserPromptSubmit` are recorded for the Swift UI Sessions panel (`--ui swift-ui`); `PostToolUse` is still unused.
 - Codex permission handling has no built-in persistent `Always Allow` path.
 - The `execpolicy` shortcut applies only to Bash permission requests.
 - The shortcut only short-circuits when the top-level result is `allow`.

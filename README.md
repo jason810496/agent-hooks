@@ -258,6 +258,36 @@ Put this in `~/.codex/hooks.json`:
 
 This is enough to route Codex Bash permission checks and stop notifications into the built-in callback.
 
+### Live sessions panel (Swift UI)
+
+The native menu-bar app ([`macos/`](macos/README.md)) adds a **Sessions** dashboard that shows
+every Claude Code / Codex session with a live status dot (working / idle / gone / failed),
+the current tool call, and a round timer. To use it:
+
+1. Run the Swift app (`macos/scripts/build_app.sh --install`); it must be running for the
+   `swift-ui` backend to engage.
+2. Pass `--ui swift-ui` on **every** hook command (so permissions and session activity both
+   flow to the app).
+3. Add `SessionStart` and `UserPromptSubmit` hooks so the dashboard can track activity. For
+   Claude Code, alongside the entries above:
+
+   ```json
+   {
+     "hooks": {
+       "SessionStart": [
+         { "hooks": [ { "type": "command", "command": "agent-hooks callback --ui swift-ui --provider claude-code" } ] }
+       ],
+       "UserPromptSubmit": [
+         { "hooks": [ { "type": "command", "command": "agent-hooks callback --ui swift-ui --provider claude-code" } ] }
+       ]
+     }
+   }
+   ```
+
+   For Codex, add the same `SessionStart` / `UserPromptSubmit` entries with
+   `--provider codex`. When the app is not running, every hook safely falls back to the
+   AppleScript dialog and no session data is recorded.
+
 Recommended setup: pass `--provider` explicitly in your provider config when you can. The built-in callback can infer providers from payload markers, but the explicit flag keeps local setup easier to reason about and debug.
 
 If you want to build your own hook app, start with [`AgentHook`](https://www.zhu424.dev/agent-hooks/latest/framework/agenthook/) and then run it with [`agent-hooks run`](https://www.zhu424.dev/agent-hooks/latest/cli/custom-apps/).

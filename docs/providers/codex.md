@@ -56,6 +56,9 @@ If your Codex build already has hooks enabled by default, keep the `hooks.json` 
 !!! tip "Why the example matches only Bash"
     The built-in Codex UX is strongest around `PreToolUse` permission mediation for shell commands. Start there, then broaden the matcher later if your workflow needs more coverage.
 
+!!! tip "Live Sessions panel (Swift UI)"
+    To populate the native app's **Sessions** dashboard, run hook commands with `--ui swift-ui` and add `SessionStart` and `UserPromptSubmit` entries (same shape as `Stop` above). The dashboard shows each session's liveness, current tool call, and round timer. See the `macos/README.md` in the repository for details.
+
 ## Raw Event Coverage
 
 The Codex adapter normalizes these raw events:

@@ -4,7 +4,7 @@ import Foundation
 /// ``src/agent_hooks/sqlite/schema.sql`` on the Python side. Both processes run this
 /// idempotently (``CREATE ... IF NOT EXISTS``) and gate on ``PRAGMA user_version``.
 enum Schema {
-    static let userVersion: Int32 = 1
+    static let userVersion: Int32 = 2
 
     static let sql = """
     PRAGMA journal_mode = WAL;
@@ -69,7 +69,27 @@ enum Schema {
       heartbeat_at_ms INTEGER NOT NULL
     );
 
-    PRAGMA user_version = 1;
+    CREATE TABLE IF NOT EXISTS sessions (
+      session_id        TEXT NOT NULL,
+      provider          TEXT NOT NULL,
+      queue             TEXT NOT NULL,
+      cwd               TEXT NOT NULL,
+      model             TEXT,
+      transcript_path   TEXT,
+      session_pid       INTEGER,
+      session_host      TEXT,
+      status            TEXT NOT NULL,
+      last_event        TEXT,
+      tool_name         TEXT,
+      round_started_ms  INTEGER,
+      last_round_ms     INTEGER,
+      error_text        TEXT,
+      updated_at_ms     INTEGER NOT NULL,
+      PRIMARY KEY (session_id, provider)
+    );
+    CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions (updated_at_ms);
+
+    PRAGMA user_version = 2;
     """
 }
 

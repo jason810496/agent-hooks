@@ -6,6 +6,9 @@ let appVersion = "0.3.0"
 private let heartbeatInterval: TimeInterval = 5
 private let janitorInterval: TimeInterval = 2
 private let retentionMs: Int64 = 24 * 60 * 60 * 1000
+/// A dead session may be pruned once it has been silent this long (matches the gray-row window
+/// in ``AppStore``). Live sessions are kept regardless of age.
+private let sessionStaleMs: Int64 = 5 * 60 * 1000
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
@@ -153,6 +156,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             terminalOlderThanMs: nowMs() - retentionMs,
             notificationsOlderThanMs: nowMs() - retentionMs
         )
+        store.database.pruneSessions(
+            staleCutoffMs: nowMs() - sessionStaleMs,
+            hardCutoffMs: nowMs() - retentionMs,
+            localHost: ProcessInfo.processInfo.hostName
+        )
         if !dead.isEmpty { store.refresh() }
     }
 
@@ -194,6 +202,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showPopover() {
         guard let button = statusItem.button else { return }
+        store.prepareForOpen()
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         NSApp.activate(ignoringOtherApps: true)
     }

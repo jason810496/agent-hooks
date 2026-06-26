@@ -59,6 +59,31 @@ enum SelfTest {
                 !db.fetchPendingRequests().contains { $0.uid == "dead" },
                 "abandoned request removed from queue"
             )
+
+            // Sessions: a live working session is green; a dead one is gray and gets pruned.
+            let host = ProcessInfo.processInfo.hostName
+            let me = ProcessInfo.processInfo.processIdentifier
+            db.diagnosticsInsertSession(
+                sessionId: "live", provider: "claude-code", status: "working",
+                pid: me, host: host, updatedAtMs: nowMs()
+            )
+            db.diagnosticsInsertSession(
+                sessionId: "gone", provider: "claude-code", status: "working",
+                pid: 2_000_000, host: host, updatedAtMs: nowMs() - 600_000
+            )
+            let sessions = db.fetchSessions().map(Session.parse)
+            check(sessions.count == 2, "sessions inserted")
+            let live = sessions.first { $0.sessionId == "live" }
+            check(live?.band(now: nowMs(), localHost: host) == .working, "live session is working")
+            let gone = sessions.first { $0.sessionId == "gone" }
+            check(gone?.band(now: nowMs(), localHost: host) == .dead, "dead session is gray")
+            db.pruneSessions(
+                staleCutoffMs: nowMs() - 300_000, hardCutoffMs: nowMs() - 86_400_000,
+                localHost: host
+            )
+            let afterPrune = db.fetchSessions().map(\.sessionId)
+            check(afterPrune.contains("live"), "live session kept after prune")
+            check(!afterPrune.contains("gone"), "dead session pruned")
         } catch {
             check(false, "open/bootstrap: \(error)")
         }

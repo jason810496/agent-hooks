@@ -67,6 +67,31 @@ detect it, polls for pending requests, and groups them per repo/worktree.
   instantly, and an uncatchable SIGKILL is reaped within ~2s once the heartbeat goes stale and
   the pid is gone.
 
+## Sessions panel
+
+The panel has three views, switched from the **•••** menu (Answers / Sessions / Settings).
+Clicking the menu-bar icon opens **Answers** when something is waiting on you, otherwise the
+live **Sessions** dashboard.
+
+Each session is one row with a status dot:
+
+- 🟢 **green** — process alive and working (a round/tool is in progress)
+- 🟡 **yellow** — process alive but idle
+- ⚪️ **gray** — process gone (a recent session, dropped after ~5 min)
+- 🔴 **red** — last round failed (positioned by liveness)
+
+Rows are ordered green → yellow → gray and capped by the **max sessions** Settings value
+(default 10). Liveness is the recorded agent pid (`os.getppid()` of the hook) probed with
+`kill(pid, 0)`, with the transcript file's mtime as a "recently active → alive" fallback. The
+current/last tool call and its output are read live by tailing the session `transcript_path`,
+and the round timer ticks from the recorded round-start. (Claude Code's TUI token counts /
+"thinking effort" are internal to its TUI and not available to hooks, so they are not shown.)
+
+To populate the dashboard, register **`SessionStart`** and **`UserPromptSubmit`** hooks (in
+addition to the permission/stop hooks) and point every hook command at `--ui swift-ui`. See the
+provider config in the root `README.md`. Sessions appear only when the Swift app is running;
+without it, hooks fall back to the AppleScript dialog and nothing is recorded.
+
 ## Status / not yet done
 
 - Packaging into a signed `.app` + launch-at-login item.

@@ -121,6 +121,9 @@ If you are working from the repository instead of the published tool, you can al
 !!! tip "Recommended wiring"
     **Use `--provider` directly in the provider config** unless you have a specific reason to drive provider selection through environment variables. It makes the callback target easier to inspect later.
 
+!!! tip "Live Sessions dashboard"
+    Running the native menu-bar app (`--ui swift-ui`) adds a **Sessions** panel that lists every Claude Code / Codex session with a live status dot, current tool call, and round timer. Pass `--ui swift-ui` on every hook command and add `SessionStart` / `UserPromptSubmit` hooks so it can track activity. See the root `README.md` ("Live sessions panel") and `macos/README.md`.
+
 ## Smoke Test The Callback Locally
 
 === "Claude Code"
