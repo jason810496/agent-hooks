@@ -96,19 +96,23 @@ def _insert_response(
     selected_index: int | None = None,
     answers: dict[str, str] | None = None,
     cancelled: bool = False,
+    action: str | None = None,
+    freetext: str | None = None,
 ) -> None:
     """Insert a Swift-side response row for one request."""
     connection = connect(db_path)
     try:
         connection.execute(
             "INSERT INTO responses "
-            "(request_uid, selected_index, answers_json, cancelled, responder, created_at_ms) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            "(request_uid, selected_index, answers_json, cancelled, action, freetext, responder, "
+            "created_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 request_uid,
                 selected_index,
                 json.dumps(answers) if answers is not None else None,
                 1 if cancelled else 0,
+                action,
+                freetext,
                 "swift_ui",
                 now_ms(),
             ),
@@ -276,6 +280,124 @@ def test_ask_user_question_cancel(db_path: Path, tmp_path: Path) -> None:
     thread.join(timeout=3)
 
     assert box["result"].answers is None
+
+
+def test_show_dialog_free_text_returns_correction(db_path: Path, tmp_path: Path) -> None:
+    transport = SQLiteTransport(
+        payload=_payload(cwd=str(tmp_path)), db_path=db_path, poll_interval=0.02
+    )
+    dialog = DialogSpec(
+        title="t", message="m", buttons=PERMISSION_BUTTONS, default_button=DialogButton.ALLOW_ONCE
+    )
+    thread, box = _run_blocking(lambda: transport.show_dialog(dialog))
+    uid = _wait_for_request(db_path)
+    _insert_response(db_path, uid, action="deny_correct", freetext="run the tests first")
+    thread.join(timeout=3)
+
+    result = box["result"]
+    assert result.button is None
+    assert result.free_text is not None
+    assert result.free_text.action == "deny_correct"
+    assert result.free_text.text == "run the tests first"
+
+
+def test_ask_user_question_allow_note_returns_free_text(db_path: Path, tmp_path: Path) -> None:
+    dialog = AskUserQuestionDialogSpec(
+        title="q",
+        questions=(
+            AskUserQuestionEntry(
+                question="Pick",
+                header="H",
+                multi_select=False,
+                options=(AskUserQuestionOption(label="A"),),
+            ),
+        ),
+    )
+    transport = SQLiteTransport(
+        payload=_payload(cwd=str(tmp_path), tool_name="AskUserQuestion"),
+        db_path=db_path,
+        poll_interval=0.02,
+    )
+    thread, box = _run_blocking(lambda: transport.show_ask_user_question_dialog(dialog))
+    uid = _wait_for_request(db_path)
+    _insert_response(
+        db_path, uid, answers={"Pick": "A"}, action="allow_note", freetext="prefer the safe path"
+    )
+    thread.join(timeout=3)
+
+    result = box["result"]
+    assert result.answers == {"Pick": "A"}
+    assert result.free_text is not None
+    assert result.free_text.action == "allow_note"
+    assert result.free_text.text == "prefer the safe path"
+
+
+def test_correction_renders_deny_reason_for_ask_user_question() -> None:
+    from agent_hooks.providers import provider_client
+    from agent_hooks.providers.claude_code.payload import build_hook_payload
+    from agent_hooks.providers.claude_code.permissions import build_correction_response
+
+    payload = build_hook_payload(
+        {
+            "hook_event_name": "PreToolUse",
+            "tool_name": "AskUserQuestion",
+            "tool_input": {"questions": [{"question": "Pick", "options": []}]},
+            "cwd": ".",
+        }
+    )
+    response = build_correction_response(payload, "do X instead")
+    wire = provider_client.render_response_payload(
+        response, provider="claude-code", input_payload=payload
+    )
+    hook_output = wire["hookSpecificOutput"]
+    assert hook_output["hookEventName"] == "PreToolUse"
+    assert hook_output["permissionDecision"] == "deny"
+    assert hook_output["permissionDecisionReason"] == "do X instead"
+
+
+def test_correction_renders_decision_message_for_permission_request() -> None:
+    from agent_hooks.providers import provider_client
+    from agent_hooks.providers.claude_code.payload import build_hook_payload
+    from agent_hooks.providers.claude_code.permissions import build_correction_response
+
+    payload = build_hook_payload(
+        {
+            "hook_event_name": "PermissionRequest",
+            "tool_name": "Bash",
+            "tool_input": {"command": "git push"},
+            "cwd": ".",
+        }
+    )
+    response = build_correction_response(payload, "use --dry-run")
+    wire = provider_client.render_response_payload(
+        response, provider="claude-code", input_payload=payload
+    )
+    hook_output = wire["hookSpecificOutput"]
+    assert hook_output["hookEventName"] == "PermissionRequest"
+    assert hook_output["decision"] == {"behavior": "deny", "message": "use --dry-run"}
+
+
+def test_allow_with_context_renders_for_ask_user_question() -> None:
+    from agent_hooks.providers import provider_client
+    from agent_hooks.providers.claude_code.payload import build_hook_payload
+    from agent_hooks.providers.claude_code.permissions import build_allow_with_context_response
+
+    payload = build_hook_payload(
+        {
+            "hook_event_name": "PreToolUse",
+            "tool_name": "AskUserQuestion",
+            "tool_input": {"questions": [{"question": "Pick"}]},
+            "cwd": ".",
+        }
+    )
+    response = build_allow_with_context_response(payload, {"Pick": "A"}, "also prefer Y")
+    wire = provider_client.render_response_payload(
+        response, provider="claude-code", input_payload=payload
+    )
+    hook_output = wire["hookSpecificOutput"]
+    assert hook_output["permissionDecision"] == "allow"
+    assert hook_output["updatedInput"]["answers"] == {"Pick": "A"}
+    assert hook_output["additionalContext"] == "also prefer Y"
 
 
 def test_heartbeat_advances_while_blocking(db_path: Path, tmp_path: Path) -> None:

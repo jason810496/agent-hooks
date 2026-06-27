@@ -31,6 +31,7 @@ from agent_hooks.models.schemas.display import (
     AskUserQuestionDialogSpec,
     DialogResult,
     DialogSpec,
+    FreeText,
     NotificationSpec,
     PermissionChoiceDialogResult,
     PermissionChoiceDialogSpec,
@@ -54,6 +55,7 @@ class _Outcome:
     answers: dict[str, str] | None
     cancelled: bool
     expired: bool
+    free_text: FreeText | None = None
 
 
 class SQLiteTransport:
@@ -149,6 +151,10 @@ class SQLiteTransport:
             summary=dialog.message,
             options=options,
         )
+        if outcome.free_text is not None:
+            return DialogResult(
+                button=None, transport=self._result(invocation), free_text=outcome.free_text
+            )
         if outcome.cancelled or outcome.expired:
             return DialogResult(button=None, transport=self._result(invocation))
         button = self._resolve_button(dialog.buttons, outcome.selected_index)
@@ -188,6 +194,10 @@ class SQLiteTransport:
             summary=dialog.message,
             options=options,
         )
+        if outcome.free_text is not None:
+            return PermissionChoiceDialogResult(
+                choice=None, transport=self._result(invocation), free_text=outcome.free_text
+            )
         if outcome.cancelled or outcome.expired:
             return PermissionChoiceDialogResult(choice=None, transport=self._result(invocation))
         choice = self._resolve_choice(dialog, outcome.selected_index)
@@ -223,6 +233,12 @@ class SQLiteTransport:
             summary="",
             options=options,
         )
+        if outcome.free_text is not None:
+            return AskUserQuestionDialogResult(
+                answers=outcome.answers,
+                transport=self._result(invocation),
+                free_text=outcome.free_text,
+            )
         if outcome.cancelled or outcome.expired or outcome.answers is None:
             return AskUserQuestionDialogResult(answers=None, transport=self._result(invocation))
         return AskUserQuestionDialogResult(
@@ -260,8 +276,8 @@ class SQLiteTransport:
             )
             while True:
                 row = connection.execute(
-                    "SELECT selected_index, answers_json, cancelled FROM responses "
-                    "WHERE request_uid = ? ORDER BY id LIMIT 1",
+                    "SELECT selected_index, answers_json, cancelled, action, freetext "
+                    "FROM responses WHERE request_uid = ? ORDER BY id LIMIT 1",
                     (request_uid,),
                 ).fetchone()
                 if row is not None:
@@ -290,7 +306,8 @@ class SQLiteTransport:
     def _parse_response_row(row: sqlite3.Row) -> _Outcome:
         """Map one ``responses`` row to an internal outcome.
 
-        :param row: Response row with ``selected_index``, ``answers_json``, ``cancelled``.
+        :param row: Response row with ``selected_index``, ``answers_json``, ``cancelled``,
+            ``action``, and ``freetext``.
         :type row: sqlite3.Row
         :return: Parsed outcome.
         """
@@ -298,7 +315,13 @@ class SQLiteTransport:
             return _Outcome(None, None, cancelled=True, expired=False)
         answers_json = row["answers_json"]
         answers = json.loads(answers_json) if answers_json else None
-        return _Outcome(row["selected_index"], answers, cancelled=False, expired=False)
+        free_text: FreeText | None = None
+        action = row["action"]
+        if action:
+            free_text = FreeText(action=action, text=row["freetext"] or "")
+        return _Outcome(
+            row["selected_index"], answers, cancelled=False, expired=False, free_text=free_text
+        )
 
     def _insert_request(
         self,

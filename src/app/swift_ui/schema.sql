@@ -39,6 +39,8 @@ CREATE TABLE IF NOT EXISTS responses (
   selected_index INTEGER,             -- chosen option index (dialog button / picker choice)
   answers_json   TEXT,                -- AskUserQuestion answers: {"question": "a, b"}
   cancelled      INTEGER NOT NULL DEFAULT 0,
+  action         TEXT,                -- NULL | 'deny_correct' | 'allow_note' (free-text override)
+  freetext       TEXT,                -- user's correction / note text for ``action``
   responder      TEXT NOT NULL,       -- 'swift_ui' | 'self'
   created_at_ms  INTEGER NOT NULL
 );
@@ -96,4 +98,4 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions (updated_at_ms);
 
-PRAGMA user_version = 2;
+PRAGMA user_version = 3;

@@ -61,6 +61,11 @@ detect it, polls for pending requests, and groups them per repo/worktree.
 
 - **Permission requests** are cards in the panel; the panel auto-surfaces on a count / quiet
   threshold (Settings).
+- Each Claude Code card has a **free-text bar**: type a correction and **Send instead** denies the
+  suggested step and feeds your text back to the model so it re-plans. On AskUserQuestion cards an
+  **Allow + note** action also approves the selected answers while attaching your text as extra
+  context. (Plain permission cards omit "Allow + note": Claude Code's `PermissionRequest` response
+  has no documented model-visible context field on an allow.)
 - **Notifications** (Stop / StopFailure / generic) are *not* shown in the panel — they pop up as
   toast banners from the top-right corner (batched by the same thresholds) and auto-dismiss.
 - A janitor clears cards whose owning hook died: SIGTERM/SIGINT marks the request cancelled

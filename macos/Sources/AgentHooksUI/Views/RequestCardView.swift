@@ -8,6 +8,8 @@ struct RequestCardView: View {
 
     /// Per-question selected option indices (AskUserQuestion only).
     @State private var selections: [Int: Set<Int>] = [:]
+    /// Free-text correction / note typed by the user.
+    @State private var correction: String = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -23,6 +25,9 @@ struct RequestCardView: View {
             }
             Divider()
             actions
+            if request.supportsFreeText {
+                freeTextBar
+            }
         }
         .padding(12)
         .frame(width: 340, alignment: .leading)
@@ -127,6 +132,47 @@ struct RequestCardView: View {
         }
     }
 
+    // MARK: - Free-text correction / note
+
+    /// A text field plus a "Send instead" (deny + correction) action, and for AskUserQuestion an
+    /// "Allow + note" (allow + extra context) action. Both feed the typed text back to the model.
+    private var freeTextBar: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Divider()
+            TextField("Correct or redirect the next step…", text: $correction, axis: .vertical)
+                .textFieldStyle(.roundedBorder)
+                .lineLimit(1...4)
+                .font(.caption)
+            HStack(spacing: 6) {
+                Button {
+                    store.sendCorrection(request, text: trimmedCorrection)
+                } label: {
+                    Label("Send instead", systemImage: "arrow.uturn.left")
+                }
+                .buttonStyle(.bordered)
+                .tint(.orange)
+                .disabled(trimmedCorrection.isEmpty)
+                if request.supportsAllowNote {
+                    Spacer()
+                    Button {
+                        store.allowWithNote(
+                            request, answers: collectedAnswers(), text: trimmedCorrection
+                        )
+                    } label: {
+                        Label("Allow + note", systemImage: "checkmark")
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.green)
+                    .disabled(trimmedCorrection.isEmpty || !allAnswered)
+                }
+            }
+        }
+    }
+
+    private var trimmedCorrection: String {
+        correction.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     // MARK: - AskUserQuestion helpers
 
     private func toggle(_ question: Question, _ option: QuestionOption) {
@@ -159,7 +205,8 @@ struct RequestCardView: View {
         request.questions.allSatisfy { !(selections[$0.index] ?? []).isEmpty }
     }
 
-    private func submit() {
+    /// Map the current per-question selections to answer text keyed by question.
+    private func collectedAnswers() -> [String: String] {
         var answers: [String: String] = [:]
         for question in request.questions {
             let chosen = selections[question.index] ?? []
@@ -168,7 +215,11 @@ struct RequestCardView: View {
                 .map { $0.label }
             answers[question.text] = labels.joined(separator: ", ")
         }
-        store.answerQuestions(request, answers: answers)
+        return answers
+    }
+
+    private func submit() {
+        store.answerQuestions(request, answers: collectedAnswers())
     }
 
     private func tint(for button: String) -> Color {

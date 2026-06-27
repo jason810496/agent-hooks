@@ -35,11 +35,18 @@ struct Question: Identifiable {
     var id: Int { index }
 }
 
+/// Free-text override actions written to ``responses.action`` (see the Python transport).
+enum FreeTextAction {
+    static let denyCorrect = "deny_correct"
+    static let allowNote = "allow_note"
+}
+
 /// A pending permission/question card decoded from a `requests` row.
 struct PermissionRequest: Identifiable {
     let uid: String
     let kind: RequestKind
     let queue: String
+    let provider: String
     let title: String
     let summary: String
     let toolName: String
@@ -48,6 +55,14 @@ struct PermissionRequest: Identifiable {
     let questions: [Question]
 
     var id: String { uid }
+
+    /// Free-text corrections / notes ride on Claude Code response fields, so the affordance is
+    /// only offered for Claude Code requests.
+    var supportsFreeText: Bool { provider == "claude-code" }
+
+    /// "Allow + note" injects `additionalContext`, which is only valid on the `PreToolUse`-wire
+    /// AskUserQuestion path; plain permission cards only offer the deny-correction.
+    var supportsAllowNote: Bool { supportsFreeText && kind == .askUserQuestion }
 
     static func parse(_ raw: RawRequest) -> PermissionRequest {
         let kind = RequestKind(rawValue: raw.kind) ?? .unknown
@@ -73,6 +88,7 @@ struct PermissionRequest: Identifiable {
             uid: raw.uid,
             kind: kind,
             queue: raw.queue,
+            provider: raw.provider,
             title: raw.title,
             summary: raw.summary,
             toolName: raw.toolName,

@@ -16,6 +16,7 @@ This page is intentionally blunt. It describes current implementation limits, no
 
 - The Claude matcher recognizes more raw Claude event names than the adapter currently normalizes into first-class events.
 - The built-in app is focused on notifications, permission requests, stop, and stop-failure behavior.
+- The Swift UI free-text bar feeds the user's text back to the model via documented fields: a correction denies with `permissionDecisionReason` (`PreToolUse`/AskUserQuestion) or `decision.message` (`PermissionRequest`); an "Allow + note" attaches `additionalContext`. Because `additionalContext` is only valid on `PreToolUse`-wire events, the "Allow + note" affordance is offered only on AskUserQuestion cards, not on plain permission cards.
 
 ## Codex Limits
 

@@ -4,15 +4,21 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol, cast
 
-from agent_hooks.enums import DialogButton, HookEventName, TransportStatus
-from agent_hooks.models.schemas.display import AppleScriptResult
+from agent_hooks.enums import DialogButton, HookEventName, HookProvider, TransportStatus
+from agent_hooks.models.schemas.display import (
+    FREE_TEXT_ALLOW_NOTE,
+    AppleScriptResult,
+    FreeText,
+)
 from agent_hooks.models.schemas.hooks import HookPayload
 from agent_hooks.models.schemas.processing import HookProcessingResult
 from agent_hooks.models.schemas.responses import AppleScriptDialogResponse, HookResponse
 from agent_hooks.providers import provider_client
 from agent_hooks.providers.claude_code.permissions import (
+    build_allow_with_context_response,
     build_ask_user_question_cancel_response,
     build_ask_user_question_response,
+    build_correction_response,
     build_permission_choice_response,
 )
 from agent_hooks.providers.claude_code.presentation import (
@@ -130,11 +136,15 @@ class DefaultHookHandler:
 
         dialog = provider_client.build_permission_dialog(normalized_payload)
         dialog_result = transport.show_dialog(dialog)
-        response = (
-            self.build_permission_response(dialog_result.button, normalized_payload)
-            if dialog_result.button is not None
-            else DEFAULT_HOOK_RESPONSE
+        free_text_response = self._free_text_response(
+            normalized_payload, dialog_result.free_text
         )
+        if free_text_response is not None:
+            response: HookResponse | AppleScriptDialogResponse = free_text_response
+        elif dialog_result.button is not None:
+            response = self.build_permission_response(dialog_result.button, normalized_payload)
+        else:
+            response = DEFAULT_HOOK_RESPONSE
         return HookProcessingResult(
             display=dialog,
             transport_result=dialog_result.transport,
@@ -177,7 +187,10 @@ class DefaultHookHandler:
             # instead of denying, but keep the picker error so it is still logged.
             return None, self.transport_error(dialog_result.transport, current_error)
 
-        response = build_permission_choice_response(payload, dialog_result.choice)
+        free_text_response = self._free_text_response(payload, dialog_result.free_text)
+        response = free_text_response or build_permission_choice_response(
+            payload, dialog_result.choice
+        )
         return (
             HookProcessingResult(
                 display=dialog,
@@ -223,7 +236,12 @@ class DefaultHookHandler:
             # instead of denying, but keep the picker error so it is still logged.
             return None, self.transport_error(dialog_result.transport, current_error)
 
-        if dialog_result.answers is None:
+        free_text_response = self._free_text_response(
+            payload, dialog_result.free_text, answers=dialog_result.answers
+        )
+        if free_text_response is not None:
+            response = free_text_response
+        elif dialog_result.answers is None:
             response = build_ask_user_question_cancel_response(payload)
         else:
             response = build_ask_user_question_response(payload, dialog_result.answers)
@@ -271,6 +289,34 @@ class DefaultHookHandler:
             response=DEFAULT_HOOK_RESPONSE,
             error=self.transport_error(transport_result, current_error),
         )
+
+    def _free_text_response(
+        self,
+        payload: HookPayload,
+        free_text: FreeText | None,
+        *,
+        answers: dict[str, str] | None = None,
+    ) -> HookResponse | None:
+        """Build the response for a free-text override, or ``None`` to fall back to normal handling.
+
+        Free-text corrections / notes ride on Claude Code response fields, so they apply only to
+        Claude Code requests; other providers fall through to their standard handling. A
+        ``deny_correct`` action denies and feeds the text back as a correction; an ``allow_note``
+        action allows and attaches the text as additional context.
+
+        :param payload: Normalized hook payload.
+        :type payload: HookPayload
+        :param free_text: The free-text override the user submitted, if any.
+        :type free_text: FreeText | None
+        :param answers: AskUserQuestion answers to allow alongside an ``allow_note`` action.
+        :type answers: dict[str, str] | None
+        :return: The built response, or ``None`` to use normal handling.
+        """
+        if free_text is None or payload.provider != HookProvider.CLAUDE_CODE:
+            return None
+        if free_text.action == FREE_TEXT_ALLOW_NOTE:
+            return build_allow_with_context_response(payload, answers or {}, free_text.text)
+        return build_correction_response(payload, free_text.text)
 
     def build_permission_response(
         self,

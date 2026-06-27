@@ -46,12 +46,31 @@ class AppleScriptResult:
     skipped_reason: str = ""
 
 
+#: Free-text action: deny the suggested step and feed the user's text back as a correction.
+FREE_TEXT_DENY_CORRECT = "deny_correct"
+#: Free-text action: allow the suggested step but attach the user's text as extra model context.
+FREE_TEXT_ALLOW_NOTE = "allow_note"
+
+
+@dataclass(frozen=True)
+class FreeText:
+    """Store a free-text override the user typed instead of (or alongside) a plain choice.
+
+    ``action`` is one of :data:`FREE_TEXT_DENY_CORRECT` or :data:`FREE_TEXT_ALLOW_NOTE`;
+    ``text`` is the user's correction / note delivered back to the model.
+    """
+
+    action: str
+    text: str
+
+
 @dataclass(frozen=True)
 class DialogResult:
     """Store a dialog selection and its transport metadata."""
 
     button: DialogButton | None
     transport: AppleScriptResult
+    free_text: FreeText | None = None
 
 
 @dataclass(frozen=True)
@@ -86,11 +105,12 @@ class AskUserQuestionDialogResult:
 
     answers: dict[str, str] | None
     transport: AppleScriptResult
+    free_text: FreeText | None = None
 
     @property
     def cancelled(self) -> bool:
         """Return whether the user cancelled the dialog."""
-        return self.answers is None
+        return self.answers is None and self.free_text is None
 
 
 @dataclass(frozen=True)
@@ -124,11 +144,12 @@ class PermissionChoiceDialogResult:
 
     choice: PermissionChoice | None
     transport: AppleScriptResult
+    free_text: FreeText | None = None
 
     @property
     def cancelled(self) -> bool:
         """Return whether the user dismissed the picker without choosing."""
-        return self.choice is None
+        return self.choice is None and self.free_text is None
 
 
 DisplaySpec: TypeAlias = (
@@ -140,6 +161,8 @@ DisplaySpec: TypeAlias = (
 
 
 __all__ = [
+    "FREE_TEXT_ALLOW_NOTE",
+    "FREE_TEXT_DENY_CORRECT",
     "AppleScriptResult",
     "AskUserQuestionDialogResult",
     "AskUserQuestionDialogSpec",
@@ -148,6 +171,7 @@ __all__ = [
     "DialogResult",
     "DialogSpec",
     "DisplaySpec",
+    "FreeText",
     "NotificationSpec",
     "PermissionChoice",
     "PermissionChoiceDialogResult",

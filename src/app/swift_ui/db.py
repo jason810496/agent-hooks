@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Final
 
 SCHEMA_PATH: Final = Path(__file__).resolve().parent / "schema.sql"
-SCHEMA_VERSION: Final = 2
+SCHEMA_VERSION: Final = 3
 CONNECT_TIMEOUT_SECONDS: Final = 5.0
 BUSY_TIMEOUT_MS: Final = 5000
 # A daemon heartbeat older than this is treated as "no daemon running".

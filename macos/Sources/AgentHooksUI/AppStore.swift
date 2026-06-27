@@ -147,6 +147,26 @@ final class AppStore: ObservableObject {
         refresh()
     }
 
+    /// "Send instead": deny the suggested step and feed the user's typed text back to the model
+    /// as a correction.
+    func sendCorrection(_ request: PermissionRequest, text: String) {
+        database.insertResponse(
+            requestUID: request.uid, selectedIndex: nil, answersJSON: nil, cancelled: false,
+            action: FreeTextAction.denyCorrect, freetext: text
+        )
+        refresh()
+    }
+
+    /// "Allow + note": allow the AskUserQuestion answers and attach the user's typed text as
+    /// extra context for the model.
+    func allowWithNote(_ request: PermissionRequest, answers: [String: String], text: String) {
+        database.insertResponse(
+            requestUID: request.uid, selectedIndex: nil, answersJSON: encodeJSON(answers),
+            cancelled: false, action: FreeTextAction.allowNote, freetext: text
+        )
+        refresh()
+    }
+
     /// Mark the current unseen notifications seen and return them for toast display. Updates the
     /// published list directly (no full refresh) to avoid re-entering the refresh callback.
     func consumeNotificationsForToast() -> [AppNotification] {

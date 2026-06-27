@@ -187,6 +187,64 @@ def build_ask_user_question_response(
     )
 
 
+def build_correction_response(payload: HookPayload, text: str) -> HookResponse:
+    """Deny the suggested step and feed the user's free-text correction back to the model.
+
+    The text rides on ``decision.message`` which the renderer maps to
+    ``permissionDecisionReason`` for ``PreToolUse``-wire events (AskUserQuestion) and keeps inside
+    the ``decision`` object for ``PermissionRequest``-wire events.
+
+    :param payload: Normalized permission payload.
+    :type payload: HookPayload
+    :param text: The user's correction / instruction for the model.
+    :type text: str
+    :return: A deny response carrying the correction text.
+    """
+    del payload
+    return HookResponse(
+        suppress_output=True,
+        hook_specific_output=HookSpecificOutput(
+            hook_event_name=HookEventName.PERMISSION_REQUEST,
+            decision=PermissionDecision(behavior=PermissionBehavior.DENY, message=text),
+        ),
+    )
+
+
+def build_allow_with_context_response(
+    payload: HookPayload,
+    answers: dict[str, str],
+    text: str,
+) -> HookResponse:
+    """Allow the AskUserQuestion answers and attach the user's note as additional context.
+
+    Only valid for ``PreToolUse``-wire events (AskUserQuestion): the note is delivered via the
+    documented ``additionalContext`` field, which ``PermissionRequest``-wire events do not support.
+
+    :param payload: Normalized AskUserQuestion payload.
+    :type payload: HookPayload
+    :param answers: Collected answers keyed by question text.
+    :type answers: dict[str, str]
+    :param text: The user's free-text note for the model.
+    :type text: str
+    :return: An allow response injecting the answers plus the note.
+    """
+    updated_input: JsonValue = {
+        "questions": payload.tool_input.raw.get("questions", []),
+        "answers": dict(answers),
+    }
+    return HookResponse(
+        suppress_output=True,
+        hook_specific_output=HookSpecificOutput(
+            hook_event_name=HookEventName.PERMISSION_REQUEST,
+            decision=PermissionDecision(
+                behavior=PermissionBehavior.ALLOW,
+                updated_input=updated_input,
+            ),
+            additional_context=text,
+        ),
+    )
+
+
 def build_ask_user_question_cancel_response(payload: HookPayload) -> HookResponse:
     """Build the response sent when the user cancels the AskUserQuestion picker."""
     del payload

@@ -87,6 +87,22 @@ final class Database {
         if currentUserVersion() < Schema.userVersion {
             try exec(Schema.sql)
         }
+        // CREATE TABLE IF NOT EXISTS never adds columns to a table that already exists, so
+        // additive column migrations on pre-existing tables run here, idempotently.
+        ensureColumn(table: "responses", column: "action", type: "TEXT")
+        ensureColumn(table: "responses", column: "freetext", type: "TEXT")
+    }
+
+    /// Add a column to an existing table when it is missing. A no-op once present, so it is safe
+    /// to run on every launch (fresh databases already have the column from ``Schema.sql``).
+    private func ensureColumn(table: String, column: String, type: String) {
+        var present = false
+        query("PRAGMA table_info(\(table))") { stmt in
+            if text(stmt, 1) == column { present = true }
+        }
+        if !present {
+            try? exec("ALTER TABLE \(table) ADD COLUMN \(column) \(type)")
+        }
     }
 
     private func currentUserVersion() -> Int32 {
@@ -222,12 +238,15 @@ final class Database {
         selectedIndex: Int?,
         answersJSON: String?,
         cancelled: Bool,
+        action: String? = nil,
+        freetext: String? = nil,
         responder: String = "swift_ui"
     ) {
         let sql = """
         INSERT INTO responses
-          (request_uid, selected_index, answers_json, cancelled, responder, created_at_ms)
-        VALUES (?, ?, ?, ?, ?, ?)
+          (request_uid, selected_index, answers_json, cancelled, action, freetext, responder,
+           created_at_ms)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """
         execute(sql) { stmt in
             bindText(stmt, 1, requestUID)
@@ -242,8 +261,10 @@ final class Database {
                 sqlite3_bind_null(stmt, 3)
             }
             sqlite3_bind_int64(stmt, 4, cancelled ? 1 : 0)
-            bindText(stmt, 5, responder)
-            sqlite3_bind_int64(stmt, 6, nowMs())
+            if let action { bindText(stmt, 5, action) } else { sqlite3_bind_null(stmt, 5) }
+            if let freetext { bindText(stmt, 6, freetext) } else { sqlite3_bind_null(stmt, 6) }
+            bindText(stmt, 7, responder)
+            sqlite3_bind_int64(stmt, 8, nowMs())
         }
     }
 
