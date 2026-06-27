@@ -66,6 +66,9 @@ detect it, polls for pending requests, and groups them per repo/worktree.
 - A janitor clears cards whose owning hook died: SIGTERM/SIGINT marks the request cancelled
   instantly, and an uncatchable SIGKILL is reaped within ~2s once the heartbeat goes stale and
   the pid is gone.
+- Cards you answer in the agent's own TUI (instead of here) are dismissed automatically: once
+  the owning session moves past a card — a newer request arrives for it, or its round ends /
+  a new round starts — the card is cancelled and removed.
 
 ## Sessions panel
 

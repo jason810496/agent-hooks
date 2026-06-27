@@ -84,6 +84,41 @@ enum SelfTest {
             let afterPrune = db.fetchSessions().map(\.sessionId)
             check(afterPrune.contains("live"), "live session kept after prune")
             check(!afterPrune.contains("gone"), "dead session pruned")
+
+            // Answered-in-TUI dismissal: a request is superseded when a newer request exists for
+            // the same session, or when the session advances to a round-terminal event after it.
+            let now = nowMs()
+            let me2 = ProcessInfo.processInfo.processIdentifier
+            let denyOptions = "{\"buttons\":[\"Deny\",\"Allow Once\"]}"
+            db.diagnosticsInsertRequest(
+                uid: "older", kind: "permission", queue: "/tmp/r", optionsJSON: denyOptions,
+                ownerPid: me2, heartbeatAtMs: now, sessionId: "sess-a", createdAtMs: now - 2_000
+            )
+            db.diagnosticsInsertRequest(
+                uid: "newer", kind: "permission", queue: "/tmp/r", optionsJSON: denyOptions,
+                ownerPid: me2, heartbeatAtMs: now, sessionId: "sess-a", createdAtMs: now
+            )
+            db.diagnosticsInsertRequest(
+                uid: "ended", kind: "permission", queue: "/tmp/r", optionsJSON: denyOptions,
+                ownerPid: me2, heartbeatAtMs: now, sessionId: "sess-b", createdAtMs: now - 2_000
+            )
+            db.diagnosticsInsertSession(
+                sessionId: "sess-b", provider: "claude-code", status: "idle",
+                pid: me2, host: host, updatedAtMs: now
+            )
+            let superseded = Set(db.supersededRequestUIDs())
+            check(superseded.contains("older"), "older request superseded by a newer one")
+            check(superseded.contains("ended"), "request superseded when its session ends the round")
+            check(!superseded.contains("newer"), "newest pending request is not superseded")
+            for uid in superseded {
+                db.insertResponse(
+                    requestUID: uid, selectedIndex: nil, answersJSON: nil,
+                    cancelled: true, responder: "self"
+                )
+            }
+            let stillPending = Set(db.fetchPendingRequests().map(\.uid))
+            check(!stillPending.contains("older"), "superseded card leaves the queue")
+            check(stillPending.contains("newer"), "live pending card stays in the queue")
         } catch {
             check(false, "open/bootstrap: \(error)")
         }

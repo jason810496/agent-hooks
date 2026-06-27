@@ -221,12 +221,13 @@ final class Database {
         requestUID: String,
         selectedIndex: Int?,
         answersJSON: String?,
-        cancelled: Bool
+        cancelled: Bool,
+        responder: String = "swift_ui"
     ) {
         let sql = """
         INSERT INTO responses
           (request_uid, selected_index, answers_json, cancelled, responder, created_at_ms)
-        VALUES (?, ?, ?, ?, 'swift_ui', ?)
+        VALUES (?, ?, ?, ?, ?, ?)
         """
         execute(sql) { stmt in
             bindText(stmt, 1, requestUID)
@@ -241,8 +242,48 @@ final class Database {
                 sqlite3_bind_null(stmt, 3)
             }
             sqlite3_bind_int64(stmt, 4, cancelled ? 1 : 0)
-            sqlite3_bind_int64(stmt, 5, nowMs())
+            bindText(stmt, 5, responder)
+            sqlite3_bind_int64(stmt, 6, nowMs())
         }
+    }
+
+    /// Request ids whose owning session has demonstrably moved past them, meaning the user
+    /// answered in the agent's own TUI rather than here. Two independent signals, both of which
+    /// can only become true once the blocking interaction was resolved elsewhere:
+    ///
+    /// 1. A newer request exists for the same session — the session could only reach it by
+    ///    resolving this one first.
+    /// 2. The session advanced to a round-terminal or new-round event (`Stop` / `StopFailure` /
+    ///    `UserPromptSubmit` / `SessionStart`) after this request was created — a round cannot end
+    ///    while one of its permission/question prompts is genuinely still waiting on us.
+    ///
+    /// A live blocking hook cannot emit further session events while it waits, so neither signal
+    /// fires for a request that is still legitimately pending. Notifications are excluded so the
+    /// permission-prompt notification that accompanies a request never trips this.
+    func supersededRequestUIDs() -> [String] {
+        let sql = """
+        SELECT r.request_uid
+        FROM requests r
+        WHERE r.status = 'pending'
+          AND r.session_id IS NOT NULL AND r.session_id != ''
+          AND NOT EXISTS (SELECT 1 FROM responses x WHERE x.request_uid = r.request_uid)
+          AND (
+            EXISTS (
+              SELECT 1 FROM requests r2
+              WHERE r2.session_id = r.session_id AND r2.provider = r.provider
+                AND r2.created_at_ms > r.created_at_ms
+            )
+            OR EXISTS (
+              SELECT 1 FROM sessions s
+              WHERE s.session_id = r.session_id AND s.provider = r.provider
+                AND s.updated_at_ms > r.created_at_ms
+                AND s.last_event IN ('Stop', 'StopFailure', 'UserPromptSubmit', 'SessionStart')
+            )
+          )
+        """
+        var uids: [String] = []
+        query(sql) { stmt in uids.append(text(stmt, 0)) }
+        return uids
     }
 
     func markAbandoned(_ uids: [String]) {
@@ -331,15 +372,17 @@ final class Database {
         queue: String,
         optionsJSON: String,
         ownerPid: Int32,
-        heartbeatAtMs: Int64
+        heartbeatAtMs: Int64,
+        sessionId: String = "",
+        createdAtMs: Int64? = nil
     ) {
         execute(
             """
             INSERT INTO requests
-              (request_uid, kind, status, queue, cwd, provider, tool_name, title, summary,
-               tool_input_json, options_json, suggestions_json, owner_pid, created_at_ms,
+              (request_uid, kind, status, queue, cwd, session_id, provider, tool_name, title,
+               summary, tool_input_json, options_json, suggestions_json, owner_pid, created_at_ms,
                heartbeat_at_ms)
-            VALUES (?, ?, 'pending', ?, ?, 'claude-code', 'Bash', 'Title', 'summary',
+            VALUES (?, ?, 'pending', ?, ?, ?, 'claude-code', 'Bash', 'Title', 'summary',
                '{}', ?, '[]', ?, ?, ?)
             """
         ) { stmt in
@@ -347,10 +390,11 @@ final class Database {
             bindText(stmt, 2, kind)
             bindText(stmt, 3, queue)
             bindText(stmt, 4, queue)
-            bindText(stmt, 5, optionsJSON)
-            sqlite3_bind_int64(stmt, 6, Int64(ownerPid))
-            sqlite3_bind_int64(stmt, 7, nowMs())
-            sqlite3_bind_int64(stmt, 8, heartbeatAtMs)
+            bindText(stmt, 5, sessionId)
+            bindText(stmt, 6, optionsJSON)
+            sqlite3_bind_int64(stmt, 7, Int64(ownerPid))
+            sqlite3_bind_int64(stmt, 8, createdAtMs ?? nowMs())
+            sqlite3_bind_int64(stmt, 9, heartbeatAtMs)
         }
     }
 

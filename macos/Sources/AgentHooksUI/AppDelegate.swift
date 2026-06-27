@@ -152,6 +152,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             host: ProcessInfo.processInfo.hostName
         )
         store.database.markAbandoned(dead)
+
+        // Clear cards the user answered in the agent's own TUI: writing a cancelled response
+        // unblocks the (possibly still-waiting) hook and drops the card from the queue.
+        let superseded = store.database.supersededRequestUIDs()
+        for uid in superseded {
+            store.database.insertResponse(
+                requestUID: uid, selectedIndex: nil, answersJSON: nil,
+                cancelled: true, responder: "self"
+            )
+        }
+
         store.database.prune(
             terminalOlderThanMs: nowMs() - retentionMs,
             notificationsOlderThanMs: nowMs() - retentionMs
@@ -161,7 +172,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             hardCutoffMs: nowMs() - retentionMs,
             localHost: ProcessInfo.processInfo.hostName
         )
-        if !dead.isEmpty { store.refresh() }
+        if !dead.isEmpty || !superseded.isEmpty { store.refresh() }
     }
 
     // MARK: - Popover control
