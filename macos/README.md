@@ -89,7 +89,11 @@ Each session is one row with a status dot:
 - 🔴 **red** — last round failed (positioned by liveness)
 
 Rows are ordered green → yellow → gray and capped by the **max sessions** Settings value
-(default 10). Liveness is the recorded agent pid (`os.getppid()` of the hook) probed with
+(default 10). **Click a row to jump to that session's terminal**: Terminal.app and iTerm2 are
+focused to the exact tab (matched by the session tty); a VS Code integrated terminal activates
+the VS Code window for that repo (its API exposes no per-tab focus). Rows whose terminal cannot
+be resolved are not clickable. The first focus of Terminal.app / iTerm2 prompts for macOS
+Automation permission ("Agent Hooks wants to control …"); grant it once. Liveness is the recorded agent pid (`os.getppid()` of the hook) probed with
 `kill(pid, 0)`, with the transcript file's mtime as a "recently active → alive" fallback. The
 current/last tool call and its output are read live by tailing the session `transcript_path`,
 and the round timer ticks from the recorded round-start. (Claude Code's TUI token counts /

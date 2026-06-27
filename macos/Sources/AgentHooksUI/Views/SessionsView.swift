@@ -34,11 +34,15 @@ struct SessionsView: View {
 }
 
 /// A single session row: status dot, repo + model, current tool call + output, and timer.
+/// Clicking a focusable row brings its terminal to the front.
 struct SessionRowView: View {
     let session: Session
+    @EnvironmentObject var store: AppStore
+    @State private var hovering = false
 
     var body: some View {
         let band = session.band(now: nowMs(), localHost: ProcessInfo.processInfo.hostName)
+        let focusable = store.canFocus(session)
         return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Circle()
@@ -56,6 +60,11 @@ struct SessionRowView: View {
                 Text("pid \(session.pid)")
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.secondary)
+                if focusable {
+                    Image(systemName: "arrow.up.forward.app")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
                 Spacer()
                 timer(band)
             }
@@ -63,10 +72,17 @@ struct SessionRowView: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.gray.opacity(0.08)))
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color.gray.opacity(focusable && hovering ? 0.16 : 0.08))
+        )
         .overlay(
             RoundedRectangle(cornerRadius: 10).stroke(Color.gray.opacity(0.2), lineWidth: 1)
         )
+        .contentShape(Rectangle())
+        .onTapGesture { if focusable { store.focusSession(session) } }
+        .onHover { hovering = $0 }
+        .help(focusable ? "Bring this session's terminal to the front" : "")
     }
 
     @ViewBuilder

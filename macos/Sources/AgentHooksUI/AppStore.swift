@@ -30,6 +30,12 @@ final class AppStore: ObservableObject {
     private var panelBeforeSettings: Panel = .answers
     /// Transcript tails cached by path; re-read only when the file mtime changes.
     private var transcriptCache: [String: (mtime: Int64, tail: TranscriptTail)] = [:]
+    /// Resolved terminal host per session (keyed by ``focusKey``); absent until probed once.
+    private var terminalKindCache: [String: TerminalKind] = [:]
+    /// Keys currently being probed off-main, to avoid duplicate resolution.
+    private var resolvingFocus: Set<String> = []
+    /// Keys of sessions whose terminal can be focused; drives the row's click affordance.
+    @Published private(set) var focusableKeys: Set<String> = []
 
     init(database: Database) {
         self.database = database
@@ -106,6 +112,50 @@ final class AppStore: ObservableObject {
             return lhs.updatedAtMs > rhs.updatedAtMs
         }
         sessions = Array(ordered.prefix(settings.maxSessionsShown))
+        for session in sessions where session.band(now: now, localHost: localHost) != .dead {
+            resolveFocusIfNeeded(session, localHost: localHost)
+        }
+    }
+
+    // MARK: - Terminal focus
+
+    private func focusKey(_ session: Session) -> String {
+        "\(session.provider):\(session.sessionId):\(session.pid)"
+    }
+
+    func canFocus(_ session: Session) -> Bool { focusableKeys.contains(focusKey(session)) }
+
+    /// Probe a live, same-host session's terminal host once (off-main) and cache the result so the
+    /// row's click affordance and the focus action are both ready without re-walking `ps`.
+    private func resolveFocusIfNeeded(_ session: Session, localHost: String) {
+        let key = focusKey(session)
+        guard isSameHost(session.host, localHost) else { return }
+        if terminalKindCache[key] != nil || resolvingFocus.contains(key) { return }
+        resolvingFocus.insert(key)
+        let pid = session.pid
+        let cwd = session.cwd
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let target = TerminalFocus.resolve(sessionPid: pid, cwd: cwd)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.resolvingFocus.remove(key)
+                guard let target else { return }
+                self.terminalKindCache[key] = target.kind
+                self.focusableKeys.insert(key)
+            }
+        }
+    }
+
+    /// Bring the session's terminal to the front (selecting the exact tab when possible). Resolves
+    /// fresh on the click so the tty reflects the current process tree.
+    func focusSession(_ session: Session) {
+        let pid = session.pid
+        let cwd = session.cwd
+        DispatchQueue.global(qos: .userInitiated).async {
+            if let target = TerminalFocus.resolve(sessionPid: pid, cwd: cwd) {
+                TerminalFocus.focus(target)
+            }
+        }
     }
 
     private func enrichTranscript(_ session: inout Session) {
