@@ -9,12 +9,15 @@ struct Settings {
     var textSizeLevel: Int
     /// Maximum rows shown in the Sessions panel (highest-priority colors first).
     var maxSessionsShown: Int
+    /// When on, the panel never auto-surfaces and notifications never toast (badge still updates).
+    var quietMode: Bool
 
     static let keyThreshold = "surface_threshold_count"
     static let keyQuiet = "surface_quiet_seconds"
     static let keyPoll = "poll_interval_ms"
     static let keyTextSize = "ui_text_size_level"
     static let keyMaxSessions = "max_sessions_shown"
+    static let keyQuietMode = "quiet_mode"
 
     static let defaults: [String: String] = [
         keyThreshold: "5",
@@ -22,6 +25,7 @@ struct Settings {
         keyPoll: "400",
         keyTextSize: "1",
         keyMaxSessions: "10",
+        keyQuietMode: "0",
     ]
 
     static func load(from db: Database) -> Settings {
@@ -30,7 +34,8 @@ struct Settings {
             surfaceQuietSeconds: intSetting(db, keyQuiet, 20, min: 1, max: 600),
             pollIntervalMs: intSetting(db, keyPoll, 400, min: 100, max: 5000),
             textSizeLevel: intSetting(db, keyTextSize, 1, min: 0, max: 3),
-            maxSessionsShown: intSetting(db, keyMaxSessions, 10, min: 1, max: 50)
+            maxSessionsShown: intSetting(db, keyMaxSessions, 10, min: 1, max: 50),
+            quietMode: boolSetting(db, keyQuietMode, false)
         )
     }
 
@@ -39,5 +44,10 @@ struct Settings {
     ) -> Int {
         guard let raw = db.settingValue(key), let value = Int(raw) else { return fallback }
         return Swift.min(Swift.max(value, lower), upper)
+    }
+
+    private static func boolSetting(_ db: Database, _ key: String, _ fallback: Bool) -> Bool {
+        guard let raw = db.settingValue(key) else { return fallback }
+        return raw == "1" || raw.lowercased() == "true"
     }
 }

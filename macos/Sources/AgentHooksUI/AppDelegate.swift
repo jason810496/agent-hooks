@@ -106,6 +106,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             autoSurfaced = false
             return
         }
+        // Quiet mode: never pop the panel open on its own. The badge still updates and the user
+        // can open it manually.
+        if store.settings.quietMode { return }
         guard !popover.isShown, !autoSurfaced else { return }
 
         let reachedCount = pending >= store.settings.surfaceThresholdCount
@@ -122,6 +125,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func toastNotifications() {
         let unseen = store.notifications
         guard !unseen.isEmpty else { return }
+
+        // Quiet mode: drop notifications silently (mark them seen) so they neither toast now nor
+        // pile up to flood when quiet mode is turned off.
+        if store.settings.quietMode {
+            _ = store.consumeNotificationsForToast()
+            return
+        }
 
         let reachedCount = unseen.count >= store.settings.surfaceThresholdCount
         let quietElapsed =
@@ -188,9 +198,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Right-click / control-click menu on the menu-bar icon, offering Quit.
+    /// Right-click / control-click menu on the menu-bar icon, offering a quiet-mode toggle and Quit.
     private func showStatusMenu() {
         let menu = NSMenu()
+        let quietItem = NSMenuItem(
+            title: "Quiet mode", action: #selector(toggleQuietMode), keyEquivalent: ""
+        )
+        quietItem.target = self
+        quietItem.state = store.settings.quietMode ? .on : .off
+        menu.addItem(quietItem)
+        menu.addItem(.separator())
         menu.addItem(
             withTitle: "Quit Agent Hooks",
             action: #selector(NSApplication.terminate(_:)),
@@ -201,6 +218,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.menu = menu
         statusItem.button?.performClick(nil)
         statusItem.menu = nil
+    }
+
+    @objc private func toggleQuietMode() {
+        store.updateSettings { $0.quietMode.toggle() }
     }
 
     private func togglePopover() {

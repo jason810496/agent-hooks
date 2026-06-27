@@ -68,6 +68,9 @@ detect it, polls for pending requests, and groups them per repo/worktree.
   has no documented model-visible context field on an allow.)
 - **Notifications** (Stop / StopFailure / generic) are *not* shown in the panel — they pop up as
   toast banners from the top-right corner (batched by the same thresholds) and auto-dismiss.
+- **Quiet mode** suppresses every pop-up: the panel never auto-surfaces and notifications never
+  toast. The menu-bar badge still counts pending items and you can open the panel to answer at any
+  time. Toggle it from the **•••** menu, the right-click icon menu, or Settings.
 - A janitor clears cards whose owning hook died: SIGTERM/SIGINT marks the request cancelled
   instantly, and an uncatchable SIGKILL is reaped within ~2s once the heartbeat goes stale and
   the pid is gone.

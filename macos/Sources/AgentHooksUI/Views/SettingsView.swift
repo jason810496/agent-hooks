@@ -59,6 +59,17 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    Toggle("Quiet mode", isOn: quietModeBinding)
+                } header: {
+                    Text("Quiet mode")
+                } footer: {
+                    Text("Suppresses every pop-up: the panel never surfaces on its own and "
+                        + "notifications never toast. The menu-bar badge still counts pending "
+                        + "items, and you can open the panel to answer at any time.")
+                        .foregroundStyle(.secondary)
+                }
+
+                Section {
                     Stepper(value: thresholdBinding, in: 1...99) {
                         LabeledContent("Surface after") {
                             Text("\(store.settings.surfaceThresholdCount) pending")
@@ -72,7 +83,8 @@ struct SettingsView: View {
                 } header: {
                     Text("Auto-surface")
                 } footer: {
-                    Text("The panel pops open on its own once either threshold is reached.")
+                    Text("The panel pops open on its own once either threshold is reached. "
+                        + "Ignored while quiet mode is on.")
                         .foregroundStyle(.secondary)
                 }
 
@@ -158,6 +170,13 @@ struct SettingsView: View {
         Binding(
             get: { store.settings.maxSessionsShown },
             set: { value in store.updateSettings { $0.maxSessionsShown = value } }
+        )
+    }
+
+    private var quietModeBinding: Binding<Bool> {
+        Binding(
+            get: { store.settings.quietMode },
+            set: { value in store.updateSettings { $0.quietMode = value } }
         )
     }
 }

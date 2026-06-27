@@ -237,6 +237,7 @@ final class AppStore: ObservableObject {
         database.setSetting(Settings.keyPoll, String(updated.pollIntervalMs))
         database.setSetting(Settings.keyTextSize, String(updated.textSizeLevel))
         database.setSetting(Settings.keyMaxSessions, String(updated.maxSessionsShown))
+        database.setSetting(Settings.keyQuietMode, updated.quietMode ? "1" : "0")
         settings = Settings.load(from: database)
     }
 }

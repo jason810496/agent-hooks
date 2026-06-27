@@ -52,17 +52,25 @@ struct PanelView: View {
             Button("Answers") { store.showPanel(.answers) }
             Button("Sessions") { store.showPanel(.sessions) }
             Divider()
+            Toggle("Quiet mode", isOn: quietModeBinding)
             Button("Settings") { store.showPanel(.settings) }
             Divider()
             Button("Quit Agent Hooks") { NSApp.terminate(nil) }
                 .keyboardShortcut("q")
         } label: {
-            Image(systemName: "ellipsis.circle")
+            Image(systemName: store.settings.quietMode ? "moon.fill" : "ellipsis.circle")
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .help("Menu")
+        .help(store.settings.quietMode ? "Quiet mode on" : "Menu")
+    }
+
+    private var quietModeBinding: Binding<Bool> {
+        Binding(
+            get: { store.settings.quietMode },
+            set: { value in store.updateSettings { $0.quietMode = value } }
+        )
     }
 
     private var answersSubtitle: String? {

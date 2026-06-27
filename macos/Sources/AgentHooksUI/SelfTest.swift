@@ -44,6 +44,9 @@ enum SelfTest {
             db.insertResponse(requestUID: "t1", selectedIndex: 1, answersJSON: nil, cancelled: false)
             check(db.fetchPendingRequests().isEmpty, "answered request leaves the queue")
             check(db.settingValue(Settings.keyThreshold) == "5", "settings default present")
+            check(!Settings.load(from: db).quietMode, "quiet mode defaults off")
+            db.setSetting(Settings.keyQuietMode, "1")
+            check(Settings.load(from: db).quietMode, "quiet mode persists when enabled")
 
             db.diagnosticsInsertRequest(
                 uid: "dead", kind: "permission", queue: "/tmp/repo",
