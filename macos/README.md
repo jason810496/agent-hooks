@@ -49,6 +49,13 @@ in the right side of the menu bar and click it to open the panel. The bundle is 
 for local use; if macOS ever blocks it as "unidentified developer", right-click the app →
 **Open** once, or allow it under System Settings → Privacy & Security.
 
+### Reorder / keep the icon visible
+
+When the menu bar is crowded the icon can get pushed under the notch and hidden. macOS does not
+let an app pin itself to a fixed slot, but you can place it yourself: **hold ⌘ and drag** the icon
+along the menu bar to the spot you want (drag it left of the notch so it stays visible). The app
+sets a stable autosave name, so your chosen position is remembered across relaunches.
+
 ### Quit
 
 - **Right-click** (or control-click) the menu-bar icon → **Quit Agent Hooks**, or

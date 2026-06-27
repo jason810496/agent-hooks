@@ -58,6 +58,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        // Persist the user's Cmd-drag position across launches. macOS gives no API to force an
+        // absolute slot among other apps' items, but a stable autosave name keeps the icon where
+        // the user parked it (e.g. dragged left of the notch so it is not clipped when crowded).
+        statusItem.autosaveName = "AgentHooksStatusItem"
         if let button = statusItem.button {
             let icon = BrandIcon.image(size: 18, template: true, inset: 1)
             icon.accessibilityDescription = "Agent Hooks"
