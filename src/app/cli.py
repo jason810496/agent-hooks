@@ -12,7 +12,9 @@ from agent_hooks.config import load_runtime_config
 from agent_hooks.enums import HookProvider
 from agent_hooks.runner import AgentHookFileLoader, run_callback
 from app.builtin import app as builtin_app
-from app.transports import DEFAULT_UI, SWIFT_UI, UI_CHOICES, build_transport
+from app.remote.client import forward_remote
+from app.remote.server import run_server_command
+from app.transports import DEFAULT_UI, REMOTE_UI, SWIFT_UI, UI_CHOICES, build_transport
 
 
 def _add_common_arguments(parser: argparse.ArgumentParser) -> None:
@@ -60,6 +62,38 @@ def build_argument_parser() -> argparse.ArgumentParser:
         help="Directory to add to the Python import path. Defaults to the current directory.",
     )
     _add_common_arguments(run_parser)
+
+    server_parser = subparsers.add_parser(
+        "server",
+        help="Run the remote hook broker (TCP) on the host for containerized clients.",
+    )
+    server_parser.add_argument(
+        "action",
+        choices=("start", "stop", "status"),
+        help="Start, stop, or query the broker.",
+    )
+    server_parser.add_argument(
+        "--host",
+        default=None,
+        help="Bind address. Defaults to $AGENT_HOOK_SERVER_HOST or 127.0.0.1.",
+    )
+    server_parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="Bind port. Defaults to $AGENT_HOOK_SERVER_PORT or 48373.",
+    )
+    server_parser.add_argument(
+        "--token",
+        default=None,
+        help="Shared secret clients must present. Defaults to $AGENT_HOOK_SERVER_TOKEN.",
+    )
+    server_parser.add_argument(
+        "--foreground",
+        action="store_true",
+        help="Run in the foreground instead of detaching (used internally / for launchd).",
+    )
+    server_parser.set_defaults(command="server")
     return parser
 
 
@@ -73,11 +107,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_argument_parser()
     args = parser.parse_args(list(argv) if argv is not None else None)
     command = args.command
+
+    if command == "server":
+        return run_server_command(args)
+
     if command not in {None, "callback", "run"}:
         return 0
 
     ui = getattr(args, "ui", DEFAULT_UI)
     provider = getattr(args, "provider", None)
+
+    # The remote backend forwards the raw hook to a host-side ``agent-hooks server`` instead
+    # of building a local transport. Read stdin and hand it over; nothing else runs here.
+    if ui == REMOTE_UI:
+        return forward_remote(sys.stdin.read(), provider)
+
     config = load_runtime_config()
 
     if command == "run":

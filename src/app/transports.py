@@ -7,6 +7,7 @@ it into ``run_callback``.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from io import StringIO
 
 from agent_hooks.config import RuntimeConfig
@@ -22,7 +23,11 @@ from app.swift_ui.transport import SQLiteTransport
 
 APPLESCRIPT_UI = "applescript"
 SWIFT_UI = "swift-ui"
-UI_CHOICES = (APPLESCRIPT_UI, SWIFT_UI)
+# The "remote" backend does not build a transport here: it forwards the hook to a host-side
+# ``agent-hooks server`` over TCP (see app/remote/client.py). It is a valid ``--ui`` choice so
+# the CLI accepts it, but ``build_transport`` is never called for it.
+REMOTE_UI = "remote"
+UI_CHOICES = (APPLESCRIPT_UI, SWIFT_UI, REMOTE_UI)
 DEFAULT_UI = APPLESCRIPT_UI
 
 
@@ -32,6 +37,7 @@ def build_transport(
     config: RuntimeConfig,
     raw_input: str,
     provider: HookProvider | str | None = None,
+    cancel_check: Callable[[], bool] | None = None,
 ) -> DisplayTransport:
     """Return the display transport for one callback run.
 
@@ -44,10 +50,16 @@ def build_transport(
     :type raw_input: str
     :param provider: Optional hook protocol provider override for payload parsing.
     :type provider: HookProvider | str | None
+    :param cancel_check: Optional predicate polled while waiting for the swift-ui answer;
+        when it returns ``True`` the request is cancelled. Used by ``agent-hooks server`` to
+        abort when the remote client disconnects. Ignored by the AppleScript backend.
+    :type cancel_check: Callable[[], bool] | None
     :return: The transport to inject into ``run_callback``.
     """
     if ui == SWIFT_UI:
-        return _build_swift_ui_transport(config=config, raw_input=raw_input, provider=provider)
+        return _build_swift_ui_transport(
+            config=config, raw_input=raw_input, provider=provider, cancel_check=cancel_check
+        )
     return _build_applescript_transport(config)
 
 
@@ -65,6 +77,7 @@ def _build_swift_ui_transport(
     config: RuntimeConfig,
     raw_input: str,
     provider: HookProvider | str | None,
+    cancel_check: Callable[[], bool] | None = None,
 ) -> DisplayTransport:
     """Build the SQLite transport, or fall back to AppleScript when no daemon runs."""
     swift_config = load_swift_ui_config()
@@ -82,7 +95,15 @@ def _build_swift_ui_transport(
         db_path=swift_config.db_path,
         poll_interval=swift_config.poll_interval_seconds,
         request_timeout=swift_config.request_timeout_seconds,
+        cancel_check=cancel_check,
     )
 
 
-__all__ = ["APPLESCRIPT_UI", "DEFAULT_UI", "SWIFT_UI", "UI_CHOICES", "build_transport"]
+__all__ = [
+    "APPLESCRIPT_UI",
+    "DEFAULT_UI",
+    "REMOTE_UI",
+    "SWIFT_UI",
+    "UI_CHOICES",
+    "build_transport",
+]

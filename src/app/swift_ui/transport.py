@@ -15,7 +15,7 @@ import os
 import socket
 import sqlite3
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -68,6 +68,7 @@ class SQLiteTransport:
         db_path: str | Path,
         poll_interval: float = DEFAULT_POLL_INTERVAL_SECONDS,
         request_timeout: float = 0.0,
+        cancel_check: Callable[[], bool] | None = None,
     ) -> None:
         """Initialize the transport for one hook invocation.
 
@@ -80,6 +81,12 @@ class SQLiteTransport:
         :param request_timeout: Seconds to block before expiring the request; ``0``
             (or negative) blocks indefinitely.
         :type request_timeout: float
+        :param cancel_check: Optional predicate polled each iteration while awaiting a
+            response; when it returns ``True`` the request is cancelled and the card is
+            cleared. Defaults to detecting the spawning session going away (parent-pid
+            change). ``agent-hooks server`` passes a "client socket closed" check so a
+            disconnected remote client cancels its pending request.
+        :type cancel_check: Callable[[], bool] | None
         """
         self._payload = payload
         self._db_path = Path(db_path)
@@ -88,6 +95,7 @@ class SQLiteTransport:
         self._pid = os.getpid()
         self._host = socket.gethostname()
         self._queue = resolve_queue(payload.cwd)
+        self._cancel_check = cancel_check
 
     def send_notification(self, notification: NotificationSpec) -> AppleScriptResult:
         """Append a notification to the buffer, skipping permission-prompt duplicates.
@@ -271,6 +279,10 @@ class SQLiteTransport:
             self._insert_request(connection, request_uid, kind, title, summary, options)
             register_pending(self._db_path, request_uid)
             initial_ppid = os.getppid()
+            # Default cancel trigger: the spawning session went away (reparented to launchd /
+            # a subreaper) without a catchable signal. A caller-supplied predicate overrides
+            # it (e.g. the broker cancels when the remote client's socket closes).
+            should_cancel = self._cancel_check or (lambda: os.getppid() != initial_ppid)
             deadline = (
                 time.monotonic() + self._request_timeout if self._request_timeout > 0 else None
             )
@@ -284,9 +296,8 @@ class SQLiteTransport:
                     self._set_status(connection, request_uid, "answered")
                     resolve_pending(request_uid)
                     return self._parse_response_row(row)
-                if os.getppid() != initial_ppid:
-                    # The spawning session went away (reparented to launchd / a subreaper)
-                    # without sending a catchable signal. Stop waiting and clear the card.
+                if should_cancel():
+                    # Stop waiting and clear the card: the requester is gone.
                     self._set_status(connection, request_uid, "cancelled")
                     resolve_pending(request_uid)
                     return _Outcome(None, None, cancelled=True, expired=False)
