@@ -4,6 +4,7 @@ enum RequestKind: String {
     case permission
     case permissionChoice = "permission_choice"
     case askUserQuestion = "ask_user_question"
+    case codexUserInput = "codex_user_input"
     case unknown
 }
 
@@ -28,9 +29,12 @@ struct QuestionOption: Identifiable {
 
 struct Question: Identifiable {
     let index: Int
+    let answerKey: String
     let text: String
     let header: String
     let multiSelect: Bool
+    let allowsOther: Bool
+    let isSecret: Bool
     let options: [QuestionOption]
     var id: Int { index }
 }
@@ -78,7 +82,7 @@ struct PermissionRequest: Identifiable {
             choices = buttons.enumerated().map { index, label in
                 ChoiceOption(index: index, label: label, button: label, suggestionIndex: nil)
             }
-        case .askUserQuestion:
+        case .askUserQuestion, .codexUserInput:
             questions = parseQuestions(options["questions"] as? [[String: Any]] ?? [])
         case .unknown:
             break
@@ -121,9 +125,12 @@ struct PermissionRequest: Identifiable {
             }
             return Question(
                 index: index,
+                answerKey: entry["id"] as? String ?? entry["question"] as? String ?? "",
                 text: entry["question"] as? String ?? "",
                 header: entry["header"] as? String ?? "",
                 multiSelect: entry["multi_select"] as? Bool ?? false,
+                allowsOther: entry["is_other"] as? Bool ?? false,
+                isSecret: entry["is_secret"] as? Bool ?? false,
                 options: options
             )
         }

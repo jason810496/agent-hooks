@@ -11,7 +11,7 @@ enum Schema {
 
     CREATE TABLE IF NOT EXISTS requests (
       request_uid      TEXT PRIMARY KEY,
-      kind             TEXT NOT NULL,
+      kind             TEXT NOT NULL,      -- permission | permission_choice | ask_user_question | codex_user_input
       status           TEXT NOT NULL DEFAULT 'pending',
       queue            TEXT NOT NULL,
       cwd              TEXT NOT NULL,
@@ -37,7 +37,7 @@ enum Schema {
       id             INTEGER PRIMARY KEY AUTOINCREMENT,
       request_uid    TEXT NOT NULL REFERENCES requests (request_uid),
       selected_index INTEGER,
-      answers_json   TEXT,
+      answers_json   TEXT,                -- Claude text map or Codex {id:{answers:[value]}} map
       cancelled      INTEGER NOT NULL DEFAULT 0,
       action         TEXT,
       freetext       TEXT,

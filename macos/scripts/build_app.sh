@@ -12,7 +12,7 @@ set -euo pipefail
 APP_NAME="Agent Hooks"
 BUNDLE_ID="dev.zhu424.agent-hooks.ui"
 EXECUTABLE="agent-hooks-ui"
-VERSION="0.3.0"
+VERSION="0.3.1"
 CONFIG="release"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

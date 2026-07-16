@@ -8,7 +8,7 @@ PRAGMA journal_mode = WAL;       -- concurrent readers + serialized fast writes
 -- AskUserQuestion hook). The owning process polls ``responses`` for an answer.
 CREATE TABLE IF NOT EXISTS requests (
   request_uid      TEXT PRIMARY KEY,   -- uuid4 minted by Python
-  kind             TEXT NOT NULL,      -- 'permission' | 'permission_choice' | 'ask_user_question'
+  kind             TEXT NOT NULL,      -- permission | permission_choice | ask_user_question | codex_user_input
   status           TEXT NOT NULL DEFAULT 'pending',
                                        -- pending | answered | cancelled | abandoned | expired
   queue            TEXT NOT NULL,      -- git toplevel of cwd (worktree root), fallback cwd
@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS responses (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,
   request_uid    TEXT NOT NULL REFERENCES requests (request_uid),
   selected_index INTEGER,             -- chosen option index (dialog button / picker choice)
-  answers_json   TEXT,                -- AskUserQuestion answers: {"question": "a, b"}
+  answers_json   TEXT,                -- Claude text map or Codex {id:{answers:[value]}} map
   cancelled      INTEGER NOT NULL DEFAULT 0,
   action         TEXT,                -- NULL | 'deny_correct' | 'allow_note' (free-text override)
   freetext       TEXT,                -- user's correction / note text for ``action``

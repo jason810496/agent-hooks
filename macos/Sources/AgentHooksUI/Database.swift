@@ -395,7 +395,9 @@ final class Database {
         ownerPid: Int32,
         heartbeatAtMs: Int64,
         sessionId: String = "",
-        createdAtMs: Int64? = nil
+        createdAtMs: Int64? = nil,
+        provider: String = "claude-code",
+        toolName: String = "Bash"
     ) {
         execute(
             """
@@ -403,7 +405,7 @@ final class Database {
               (request_uid, kind, status, queue, cwd, session_id, provider, tool_name, title,
                summary, tool_input_json, options_json, suggestions_json, owner_pid, created_at_ms,
                heartbeat_at_ms)
-            VALUES (?, ?, 'pending', ?, ?, ?, 'claude-code', 'Bash', 'Title', 'summary',
+            VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, 'Title', 'summary',
                '{}', ?, '[]', ?, ?, ?)
             """
         ) { stmt in
@@ -412,10 +414,12 @@ final class Database {
             bindText(stmt, 3, queue)
             bindText(stmt, 4, queue)
             bindText(stmt, 5, sessionId)
-            bindText(stmt, 6, optionsJSON)
-            sqlite3_bind_int64(stmt, 7, Int64(ownerPid))
-            sqlite3_bind_int64(stmt, 8, createdAtMs ?? nowMs())
-            sqlite3_bind_int64(stmt, 9, heartbeatAtMs)
+            bindText(stmt, 6, provider)
+            bindText(stmt, 7, toolName)
+            bindText(stmt, 8, optionsJSON)
+            sqlite3_bind_int64(stmt, 9, Int64(ownerPid))
+            sqlite3_bind_int64(stmt, 10, createdAtMs ?? nowMs())
+            sqlite3_bind_int64(stmt, 11, heartbeatAtMs)
         }
     }
 

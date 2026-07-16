@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-let appVersion = "0.3.0"
+let appVersion = "0.3.1"
 
 private let heartbeatInterval: TimeInterval = 5
 private let janitorInterval: TimeInterval = 2

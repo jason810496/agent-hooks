@@ -12,6 +12,7 @@ from agent_hooks.config import load_runtime_config
 from agent_hooks.enums import HookProvider
 from agent_hooks.runner import AgentHookFileLoader, run_callback
 from app.builtin import app as builtin_app
+from app.codex_app_server import run_codex_app_server
 from app.remote.client import forward_remote
 from app.remote.server import run_server_command
 from app.transports import DEFAULT_UI, REMOTE_UI, SWIFT_UI, UI_CHOICES, build_transport
@@ -94,6 +95,22 @@ def build_argument_parser() -> argparse.ArgumentParser:
         help="Run in the foreground instead of detaching (used internally / for launchd).",
     )
     server_parser.set_defaults(command="server")
+
+    codex_parser = subparsers.add_parser(
+        "codex-app-server",
+        help="Run codex app-server with request_user_input routed to SwiftUI.",
+    )
+    codex_parser.add_argument(
+        "--codex-bin",
+        default="codex",
+        help="Codex executable name or path. Defaults to 'codex'.",
+    )
+    codex_parser.add_argument(
+        "codex_args",
+        nargs=argparse.REMAINDER,
+        help="Arguments after '--' are passed to codex app-server.",
+    )
+    codex_parser.set_defaults(command="codex-app-server")
     return parser
 
 
@@ -110,6 +127,12 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if command == "server":
         return run_server_command(args)
+
+    if command == "codex-app-server":
+        codex_args = tuple(args.codex_args)
+        if codex_args[:1] == ("--",):
+            codex_args = codex_args[1:]
+        return run_codex_app_server(codex_binary=args.codex_bin, codex_args=codex_args)
 
     if command not in {None, "callback", "run"}:
         return 0
@@ -135,9 +158,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if ui == SWIFT_UI:
         raw_input = sys.stdin.read()
         transport = build_transport(ui, config=config, raw_input=raw_input, provider=provider)
-        return run_callback(
-            hook, stdin=StringIO(raw_input), transport=transport, provider=provider
-        )
+        return run_callback(hook, stdin=StringIO(raw_input), transport=transport, provider=provider)
 
     transport = build_transport(ui, config=config, raw_input="", provider=provider)
     return run_callback(hook, transport=transport, provider=provider)

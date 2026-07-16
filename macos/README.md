@@ -1,4 +1,4 @@
-# Agent Hooks — macOS UI (0.3.0, preview)
+# Agent Hooks — macOS UI (0.3.1, preview)
 
 A native menu-bar app that centralizes Claude Code / Codex permission prompts into a
 Slack-like buffer. It talks to the Python `agent-hooks` hook process through a shared SQLite
@@ -113,6 +113,61 @@ To populate the dashboard, register **`SessionStart`** and **`UserPromptSubmit`*
 addition to the permission/stop hooks) and point every hook command at `--ui swift-ui`. See the
 provider config in the root `README.md`. Sessions appear only when the Swift app is running;
 without it, hooks fall back to the AppleScript dialog and nothing is recorded.
+
+## Codex `request_user_input`
+
+Codex sends `request_user_input` through its app-server JSON-RPC connection rather than a
+`PreToolUse` hook. To route those questions to this app, configure your app-server client to
+launch the following command in place of `codex app-server`:
+
+```sh
+agent-hooks codex-app-server
+```
+
+The command is a transparent stdio proxy. When Agent Hooks UI is running, it intercepts
+`item/tool/requestUserInput`, displays all questions on one card, and returns answers to Codex
+by stable question id. When the app is not running, the request is passed through unchanged so
+the original app-server client can render it. Additional app-server arguments can be supplied
+after `--`, for example `agent-hooks codex-app-server -- --listen stdio://`.
+
+This integration applies to Codex clients that launch or connect through `codex app-server`.
+The standalone Codex CLI TUI owns its input channel internally and cannot be replaced by a hook.
+
+### Manual multi-question test
+
+First quit any currently running Agent Hooks menu-bar app. Build and install the current native
+app, then relaunch `~/Applications/Agent Hooks.app` from Finder or Spotlight:
+
+```sh
+macos/scripts/build_app.sh --install
+```
+
+From the repository root, run:
+
+```sh
+uv run python scripts/manual_codex_question.py
+```
+
+One card should contain both **Framework** and **Storage**. Choose one option for each question,
+or choose **Other** for Storage and enter custom text. **Submit** stays disabled until both
+questions are answered. After submitting, the terminal prints the exact result returned to Codex:
+
+```json
+{
+  "answers": {
+    "framework": {"answers": ["SwiftUI"]},
+    "storage": {"answers": ["SQLite"]}
+  }
+}
+```
+
+Also run the deterministic automated checks when changing this flow:
+
+```sh
+uv run pytest tests/test_codex_app_server.py -q
+swift build --package-path macos
+macos/.build/debug/agent-hooks-ui --selftest
+```
 
 ## Status / not yet done
 

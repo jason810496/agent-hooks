@@ -189,10 +189,9 @@ final class AppStore: ObservableObject {
         refresh()
     }
 
-    func answerQuestions(_ request: PermissionRequest, answers: [String: String]) {
-        let json = encodeJSON(answers)
+    func answerQuestions(_ request: PermissionRequest, answersJSON: String) {
         database.insertResponse(
-            requestUID: request.uid, selectedIndex: nil, answersJSON: json, cancelled: false
+            requestUID: request.uid, selectedIndex: nil, answersJSON: answersJSON, cancelled: false
         )
         refresh()
     }
@@ -242,7 +241,8 @@ final class AppStore: ObservableObject {
     }
 }
 
-private func encodeJSON(_ value: [String: String]) -> String? {
+func encodeJSON(_ value: Any) -> String? {
+    guard JSONSerialization.isValidJSONObject(value) else { return nil }
     guard let data = try? JSONSerialization.data(withJSONObject: value) else { return nil }
     return String(data: data, encoding: .utf8)
 }

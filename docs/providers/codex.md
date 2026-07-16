@@ -83,6 +83,25 @@ The built-in callback app currently behaves like this:
 
 This means Codex event registration is broader than the current UI behavior exposed by the built-in app.
 
+### `request_user_input` with SwiftUI
+
+Codex delivers `request_user_input` as a server-initiated app-server JSON-RPC request, not as a
+hook event. App-server clients can route it through the native menu-bar UI by launching:
+
+```bash
+agent-hooks codex-app-server
+```
+
+The wrapper passes ordinary app-server traffic through unchanged. While Agent Hooks UI is
+running, it renders all questions together, preserves each Codex question ID, supports the
+client-provided **Other** field, and returns Codex's required `{id: {answers: [...]}}` response.
+If the Swift app is unavailable, the request remains with the original app-server client.
+
+For a deterministic manual test from the repository checkout, quit the old menu-bar app, run
+`macos/scripts/build_app.sh --install`, relaunch `~/Applications/Agent Hooks.app`, and then run
+`uv run python scripts/manual_codex_question.py`. The standalone Codex CLI TUI does not expose
+its `request_user_input` channel to hooks; this path is for clients that use `codex app-server`.
+
 ## Permission Handling
 
 The Codex built-in permission dialog offers:

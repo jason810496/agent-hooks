@@ -43,6 +43,43 @@ enum SelfTest {
 
             db.insertResponse(requestUID: "t1", selectedIndex: 1, answersJSON: nil, cancelled: false)
             check(db.fetchPendingRequests().isEmpty, "answered request leaves the queue")
+
+            let codexQuestions = """
+            {"answer_format":"codex","questions":[
+              {"id":"framework","header":"Framework","question":"Which framework?",
+               "multi_select":false,"is_other":false,"is_secret":false,
+               "options":[{"label":"SwiftUI","description":"Native UI"}]},
+              {"id":"storage","header":"Storage","question":"Which store?",
+               "multi_select":false,"is_other":true,"is_secret":false,
+               "options":[{"label":"SQLite","description":"Local database"}]}
+            ]}
+            """
+            db.diagnosticsInsertRequest(
+                uid: "codex-q", kind: "codex_user_input", queue: "/tmp/repo",
+                optionsJSON: codexQuestions,
+                ownerPid: ProcessInfo.processInfo.processIdentifier, heartbeatAtMs: nowMs(),
+                provider: "codex", toolName: "request_user_input"
+            )
+            if let raw = db.fetchPendingRequests().first {
+                let request = PermissionRequest.parse(raw)
+                check(request.kind == .codexUserInput, "Codex question kind parsed")
+                check(request.questions.count == 2, "multiple Codex questions parsed")
+                check(request.questions[0].answerKey == "framework", "Codex question id preserved")
+                check(request.questions[1].allowsOther, "Codex Other choice parsed")
+                check(
+                    request.questions[0].options[0].detail == "Native UI",
+                    "Codex option description parsed"
+                )
+            }
+            let codexAnswers = encodeJSON([
+                "framework": ["answers": ["SwiftUI"]],
+                "storage": ["answers": ["A custom store"]],
+            ])
+            db.insertResponse(
+                requestUID: "codex-q", selectedIndex: nil, answersJSON: codexAnswers,
+                cancelled: false
+            )
+            check(db.fetchPendingRequests().isEmpty, "Codex answers leave the queue")
             check(db.settingValue(Settings.keyThreshold) == "5", "settings default present")
             check(!Settings.load(from: db).quietMode, "quiet mode defaults off")
             db.setSetting(Settings.keyQuietMode, "1")

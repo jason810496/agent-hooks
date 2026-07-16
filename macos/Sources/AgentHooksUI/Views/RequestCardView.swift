@@ -6,8 +6,11 @@ struct RequestCardView: View {
     let isActive: Bool
     @EnvironmentObject var store: AppStore
 
-    /// Per-question selected option indices (AskUserQuestion only).
+    /// Per-question selected option indices for native question cards.
     @State private var selections: [Int: Set<Int>] = [:]
+    /// Codex questions may add a free-form "Other" answer alongside their choices.
+    @State private var otherSelections: Set<Int> = []
+    @State private var otherAnswers: [Int: String] = [:]
     /// Free-text correction / note typed by the user.
     @State private var correction: String = ""
 
@@ -56,7 +59,7 @@ struct RequestCardView: View {
 
     @ViewBuilder
     private var actions: some View {
-        if request.kind == .askUserQuestion {
+        if request.kind == .askUserQuestion || request.kind == .codexUserInput {
             questionForm
         } else {
             choiceButtons
@@ -109,14 +112,24 @@ struct RequestCardView: View {
                         Button {
                             toggle(question, option)
                         } label: {
-                            HStack(spacing: 6) {
+                            HStack(alignment: .top, spacing: 6) {
                                 Image(systemName: marker(question, option))
-                                Text(option.label)
-                                Spacer()
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(option.label)
+                                    if !option.detail.isEmpty {
+                                        Text(option.detail)
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                Spacer(minLength: 0)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .buttonStyle(.plain)
+                    }
+                    if question.allowsOther {
+                        otherAnswerField(question)
                     }
                 }
             }
@@ -187,6 +200,7 @@ struct RequestCardView: View {
             chosen = [option.index]
         }
         selections[question.index] = chosen
+        otherSelections.remove(question.index)
     }
 
     private func isSelected(_ question: Question, _ option: QuestionOption) -> Bool {
@@ -202,7 +216,11 @@ struct RequestCardView: View {
     }
 
     private var allAnswered: Bool {
-        request.questions.allSatisfy { !(selections[$0.index] ?? []).isEmpty }
+        request.questions.allSatisfy { question in
+            if !(selections[question.index] ?? []).isEmpty { return true }
+            return otherSelections.contains(question.index)
+                && !trimmedOtherAnswer(for: question).isEmpty
+        }
     }
 
     /// Map the current per-question selections to answer text keyed by question.
@@ -213,13 +231,88 @@ struct RequestCardView: View {
             let labels = question.options
                 .filter { chosen.contains($0.index) }
                 .map { $0.label }
-            answers[question.text] = labels.joined(separator: ", ")
+            answers[question.answerKey] = labels.joined(separator: ", ")
         }
         return answers
     }
 
     private func submit() {
-        store.answerQuestions(request, answers: collectedAnswers())
+        guard let answersJSON = encodedAnswers() else { return }
+        store.answerQuestions(request, answersJSON: answersJSON)
+    }
+
+    @ViewBuilder
+    private func otherAnswerField(_ question: Question) -> some View {
+        Button {
+            selectOther(question)
+        } label: {
+            HStack(spacing: 6) {
+                Image(
+                    systemName: otherSelections.contains(question.index)
+                        ? "largecircle.fill.circle" : "circle"
+                )
+                Text(question.options.isEmpty ? "Answer" : "Other")
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(.plain)
+
+        if otherSelections.contains(question.index) {
+            Group {
+                if question.isSecret {
+                    SecureField("Type your answer…", text: otherAnswerBinding(question))
+                } else {
+                    TextField(
+                        "Type your answer…", text: otherAnswerBinding(question), axis: .vertical
+                    )
+                    .lineLimit(1...3)
+                }
+            }
+            .textFieldStyle(.roundedBorder)
+            .font(.caption)
+        }
+    }
+
+    private func selectOther(_ question: Question) {
+        selections[question.index] = []
+        otherSelections.insert(question.index)
+    }
+
+    private func otherAnswerBinding(_ question: Question) -> Binding<String> {
+        Binding(
+            get: { otherAnswers[question.index] ?? "" },
+            set: { value in
+                otherAnswers[question.index] = value
+                otherSelections.insert(question.index)
+                selections[question.index] = []
+            }
+        )
+    }
+
+    private func trimmedOtherAnswer(for question: Question) -> String {
+        (otherAnswers[question.index] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func answerValues(for question: Question) -> [String] {
+        if otherSelections.contains(question.index) {
+            let answer = trimmedOtherAnswer(for: question)
+            return answer.isEmpty ? [] : [answer]
+        }
+        let chosen = selections[question.index] ?? []
+        return question.options.filter { chosen.contains($0.index) }.map(\.label)
+    }
+
+    private func encodedAnswers() -> String? {
+        if request.kind == .codexUserInput {
+            var answers: [String: [String: [String]]] = [:]
+            for question in request.questions {
+                answers[question.answerKey] = ["answers": answerValues(for: question)]
+            }
+            return encodeJSON(answers)
+        }
+        return encodeJSON(collectedAnswers())
     }
 
     private func tint(for button: String) -> Color {
